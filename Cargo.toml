@@ -1,0 +1,8 @@
+[workspace]
+members = [
+    "crates/ent_core",
+    "crates/cfg",
+    "crates/ent_ctl"
+]
+
+resolver = "2"

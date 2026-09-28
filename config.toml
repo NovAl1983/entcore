@@ -1,0 +1,86 @@
+# =====================================================================
+# НАСТРОЙКИ СИСТЕМЫ И ИНТЕГРАЦИЙ
+# =====================================================================
+[system]
+scripts_directory = "D:\\Rust\\projects\\rust_rules\\rune_scripts"
+
+[integrations.mqtt]
+host = "localhost"
+port = 1883
+
+
+[integrations.modbus_rtu]
+port = "/dev/ttyRS485-1"
+baud_rate = 9600
+data_bits = 8
+stop_bits = 2
+parity = "N"
+
+# =====================================================================
+# РЕЕСТР СУЩНОСТЕЙ ПО ПЛАТФОРМАМ (INTEGRATIONS)
+# =====================================================================
+
+# 🌐 1. УСТРОЙСТВА, РАБОТАЮЩИЕ ЧЕРЕЗ MQTT
+[[mqtt.light]]
+entity_id = "light.living_room"
+name = "люстра в зале"
+state_topic = "/devices/wb-mr6cv3_189/controls/K2"
+command_topic = "/devices/wb-mr6cv3_189/controls/K2/on"
+brightness_state_topic = "/devices/wb-mr6cv3_189/controls/Brightness"
+brightness_command_topic = "/devices/wb-mr6cv3_189/controls/Brightness/on"
+brightness_scale = 254
+
+[[mqtt.sensor]]
+entity_id = "sensor.kitchen_motion"
+name = "датчик движения кухня"
+state_topic = "/devices/wb-msw-v4_220/controls/Current Motion"
+
+[[mqtt.sensor]]
+entity_id = "sensor.kitchen_illuminance"
+name = "датчик освещенности кухня"
+state_topic = "/devices/wb-msw-v4_200/controls/Illuminance"
+
+
+# ☁️ 3. УСТРОЙСТВА ИЗ ИНТЕРНЕТА (HTTP / REST)
+[[http]]
+entity_id = "sensor.yandex_weather"
+name = "Погода"
+url = "https://yandex.ru"
+scan_interval = 600
+
+# 🧠 4. ВИРТУАЛЬНЫЕ ПОМОЩНИКИ (HELPERS - НА СТОРОНЕ ЯДРА RUST)
+[[helper.input_boolean]]
+entity_id = "input_boolean.night_mode"
+name = "Ночной режим"
+initial = false
+
+
+# =====================================================================
+# все что ниже пока не реализовываем (заметки на будущее!!!)
+# =====================================================================
+
+
+# ПРИМЕРЫ ДРУГИХ ПЛАТФОРМ (НА БУДУЩИЕ)
+
+# 🛠️ 2. БУДУЩИЕ УСТРОЙСТВА, РАБОТАЮЩИЕ ЧЕРЕЗ MODBUS RTU НАПРЯМУЮ (БЕЗ MQTT драйвера WB)
+#[[modbus_rtu.switch]]
+#entity_id = "switch.ventilation_relay"
+#name = "Реле вентиляции"
+#slave_id = 14
+#register_address = 0
+#register_type = "holding" # или coil
+
+#[[modbus_rtu.sensor]]
+#entity_id = "sensor.outdoor_temperature"
+#name = "Уличная температура"
+#slave_id = 25
+#register_address = 4
+#register_type = "input"
+#data_type = "f32"
+
+#  ПРИМЕР СОЗДАНИЯ ВИРТУАЛЬНОГО УСТРОЙСТВА (MQTT) (из старого проекта пока нет  в планах реализовавать)
+# виртуальное устройство термостат
+#[virtual.house_thermostat]
+#target = '''{"topic_type": "range", "value": 27.0, "type": "f64",   "min": 10, "max": 30, "retain": true } '''
+#current_temp = '''{"topic_type": "range", "value": 32.0, "type": "f64", "retain": true, "readonly": true, "forceDefault": true}'''
+#activaited = ''' {"topic_type": "switch", "value": false, "type": "bool", "retain": true }'''
