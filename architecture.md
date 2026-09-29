@@ -123,3 +123,10 @@ ScriptRunner — 1 std::thread (позже — пул).
 Timer — 1 std::thread.
 
 MqttBridge — tokio async (не std::thread).
+
+## Правило: минимум tokio
+
+- `ent_core`: `tokio = { features = ["sync"] }` — только mpsc/oneshot.
+- `ent_mqtt`, `ent_ctl`: полный tokio (rt, net, macros).
+- `ent_runes`, `ent_timer`, `ent_modbus`: только `std` + `tokio::sync` при необходимости.
+- По умолчанию — `std`. Tokio — исключение.
