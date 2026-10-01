@@ -1,3 +1,8 @@
+use crate::entity::Entity;
+
+use std::collections::HashMap;
+
+
 
 
 #[derive(Debug, Clone, PartialEq)]
@@ -12,4 +17,6 @@ pub enum EntityState {
     Counter {value: u64},
     InputBoolean {is_on: bool},
 }
+
+
 
