@@ -1,9 +1,9 @@
 use std::collections::HashMap;
-use std::{println, thread};
+use std::{println, thread,};
 
 use tokio::sync::mpsc;
 
-use crate::entity::{self, Entity};
+use crate::entity::Entity;
 use crate::handle::EntityHandle;
 use crate::message::EntityMessage;
 
@@ -43,47 +43,39 @@ impl EntityManager {
                     println!("Сущность с  id = {} добавленна в entities", id);
                    
                 },
-                EntityMessage::UpdateState { 
-                    entity_id, 
-                    new_state, 
-                    source 
-                } => {
-                    // let old_state = self.entities.get(&entity_id);
-                    
-                    if let Some(old) = self.entities.get(&entity_id) {
-                        if old.state == new_state {
+                EntityMessage::UpdateState {entity_id, new_state, source } => {
+                    if let Some(entity) = self.entities.get_mut(&entity_id) {
+                        if entity.state == new_state {
                             continue;
                         }
+                        entity.state = new_state;
+                        println!("🔄 '{}' обновлена (source: {:?})", entity_id, source);
 
-                        let _ = self.entities.insert(entity_id.clone(), Entity { id: entity_id.clone(), friendly_name: entity_id.clone(), state: new_state });
-                    
-
-
+                    } else {
+                        eprintln!("⚠️ UpdateState: неизвестная '{}'", entity_id);
                     }
-                    // self.entities.insert(entity_id, Entity { id: entity_id.clone(), friendly_name: entity_id.clone(), state: new_state });
                 },
-                _ => todo!()
+                EntityMessage::GetState { entity_id, reply } => {
+                        let entity = self.entities.get(&entity_id).cloned();
+                        let _ = reply.send(entity);
 
-
+                },
+                EntityMessage::ListAll { reply } => {
+                    let all: Vec<Entity> = self.entities.values().cloned().collect();
+                    let _ =reply.send(all);
+                },
+                EntityMessage::Shutdown => {
+                    println!("EntityManager: получен Shutdown");
+                    break;
+                },
             }
         }
+
+
     }
 }
 
-    // Register(Entity),
 
-    // /// Обновить состояние сущности.
-    // UpdateState {
-    //     entity_id: String,
-    //     new_state: EntityState,
-    //     source: UpdateSource,
-    // },
-
-    // /// Прочитать сущность по id. Ответ — через oneshot.
-    // GetState {
-    //     entity_id: String,
-    //     reply: oneshot::Sender<Option<Entity>>,
-    // },
 
     // /// Получить список всех сущностей. Для отладки и WebUI.
     // ListAll {

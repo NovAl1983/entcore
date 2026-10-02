@@ -23,6 +23,14 @@ name = "ent_ctl"
 version = "0.1.0"
 
 [[package]]
+name = "ent_mqtt"
+version = "0.1.0"
+dependencies = [
+ "cfg",
+ "ent_core",
+]
+
+[[package]]
 name = "equivalent"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

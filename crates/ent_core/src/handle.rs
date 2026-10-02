@@ -1,4 +1,5 @@
 use tokio::sync::mpsc;
+use tokio::sync::oneshot;
 
 use crate::message::{EntityMessage, UpdateSource};
 use crate::entity::Entity;
@@ -37,8 +38,14 @@ let _ = self.tx.send(EntityMessage::Register(entity));
             });
      }
     
-  //  /// Прочитать сущность (sync).
-    // pub fn get_state_blocking(&self, entity_id: &str) -> Option<Entity> { ... }
+  pub fn get_state_blocking(&self, entity_id: &str) -> Option<Entity> {
+        let (tx, rx) = oneshot::channel();
+        self.tx.send(EntityMessage::GetState {
+            entity_id: entity_id.to_string(),
+            reply: tx,
+        }).ok()?;
+        rx.blocking_recv().ok()?
+    }
     
   //  /// Прочитать сущность (async).
     // pub async fn get_state(&self, entity_id: &str) -> Option<Entity> { ... }

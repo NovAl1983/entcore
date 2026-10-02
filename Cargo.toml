@@ -2,7 +2,7 @@
 members = [
     "crates/ent_core",
     "crates/cfg",
-    "crates/ent_ctl"
-]
+    "crates/ent_ctl",
+    "crates/ent_mqtt"]
 
 resolver = "2"
