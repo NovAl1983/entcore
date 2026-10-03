@@ -77,10 +77,3 @@ impl EntityManager {
 
 
 
-    // /// Получить список всех сущностей. Для отладки и WebUI.
-    // ListAll {
-    //     reply: oneshot::Sender<Vec<Entity>>,
-    // },
-
-    // /// Завершить работу актора.
-    // Shutdown,

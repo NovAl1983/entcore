@@ -21,6 +21,11 @@ dependencies = [
 [[package]]
 name = "ent_ctl"
 version = "0.1.0"
+dependencies = [
+ "cfg",
+ "ent_core",
+ "ent_mqtt",
+]
 
 [[package]]
 name = "ent_mqtt"
