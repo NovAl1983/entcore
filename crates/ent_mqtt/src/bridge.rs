@@ -32,7 +32,12 @@ impl MqttBridge {
                     println!("📩 MQTT: topic='{}', payload='{}'", p.topic, payload);
                 }
                 Ok(Event::Incoming(Incoming::ConnAck(_))) => {
-                    println!("✅ MQTT: подключено к брокеру");
+                    println!("✅ MQTT: ConnAck подключено к брокеру");
+                    let _ = self.client.subscribe("/devices/wb-msw-v4_220/controls/Current Motion", QoS::AtLeastOnce).await;
+                }
+                Ok(Event::Incoming(Incoming::SubAck(s))) => {
+                    println!("✅ MQTT: SubAck подтвереждение от броекра {:?}", s );
+                    // let _ = self.client.subscribe("/devices/wb-msw-v4_220/controls/Current Motion", QoS::AtLeastOnce).await;
                 }
                 Ok(_) => {}
                 Err(e) => {
@@ -45,3 +50,4 @@ impl MqttBridge {
     }
 
 }
+

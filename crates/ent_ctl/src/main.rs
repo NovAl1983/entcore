@@ -38,16 +38,17 @@ async  fn main() {
      let integrations = &config.integrations;
      let mqtt_config = integrations.mqtt.as_ref().expect("Секция [integrations.mqtt] обязательна");
 
-     let bridge = MqttBridge::new(mqtt_config);
+     let mqtt_bridge = MqttBridge::new(mqtt_config);
      println!("✅ MqttBridge создан");
 
-     // 7. Подписка на один топик для теста (потом — на все)
-     bridge.subscribe("/devices/wb-msw-v4_220/controls/Current Motion").await.expect("Не удалось подписаться");
-     println!("✅ Подписка выполнена");
+    //подписка на топики выполняется  в методе bridge.run()!!!!
+    //  // 7. Подписка на один топик для теста (потом — на все)
+    //  bridge.subscribe("/devices/wb-msw-v4_220/controls/Current Motion").await.expect("Не удалось подписаться");
+    //  println!("✅ Подписка выполнена");
 
-     // 8. Запускаем bridge в фоне + main ждёт
+     // 8. Запускаем bridge в фоне + подписываемся на топики, main ждёт
     let bridge_handle = tokio::spawn(async move {
-        bridge.run().await;
+        mqtt_bridge.run().await;
     });
 
     println!("📡 MQTT bridge запущен. Ждём 30 секунд...");
