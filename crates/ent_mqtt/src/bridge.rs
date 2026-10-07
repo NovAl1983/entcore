@@ -1,21 +1,28 @@
-use std::time::Duration;
+use std::{collections::HashMap, time::Duration};
 
 use rumqttc::{AsyncClient, Event, Incoming, MqttOptions, QoS};
 
-use cfg::MqttBroker;
+use ent_core::{Entity, EntityState};
+
+use cfg::{MqttBroker, Mqtt};
+
+
 
 pub  struct  MqttBridge {
     client: AsyncClient,
     eventloop: rumqttc::EventLoop,
+    // topics: Topics,
 }
 
 impl MqttBridge {
 
-    pub fn new(config: &MqttBroker) -> Self {
-        let mut options = MqttOptions::new("entcore", &config.host, config.port);
+    pub fn new(cfg_broker: &MqttBroker, cfg_topic: &Mqtt) -> Self {
+        let mut options = MqttOptions::new("entcore", &cfg_broker.host, cfg_broker.port);
         options.set_keep_alive(Duration::from_secs(5));
 
         let (client, eventloop) = AsyncClient::new(options, 50);
+
+
 
         Self { client, eventloop }
     }
