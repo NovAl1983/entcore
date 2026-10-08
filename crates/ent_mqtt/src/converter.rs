@@ -1,27 +1,29 @@
 
 use std::collections::HashMap;
+use std::println;
 
-use cfg::Mqtt;
+use cfg::{Config, Mqtt};
 use ent_core::{Entity, EntityState};
+use ent_core::state::FleidInfo;
 
 
-pub struct TopicInfo {
-    pub id: String,
-    // pub state: EntityState,
-    pub fleid_state: String,
-}
+// pub struct TopicInfo {
+//     pub id: String,
+//     // pub state: EntityState,
+//     pub fleid_state: String,
+// }
 
-impl  TopicInfo {
-    pub fn new(id: String, fleid_state: String) -> Self {
-        Self { id, fleid_state }
+// impl  TopicInfo {
+//     pub fn new(id: String, fleid_state: String) -> Self {
+//         Self { id, fleid_state }
 
-    }
+//     }
     
-}
-
+// }
+ #[derive(Debug)]
 pub struct Topics {
-    pub state_topic: HashMap<String, TopicInfo>, // topic->TopicInfo
-    pub command_topic: HashMap<TopicInfo, String> // TopicInfo->topic
+    pub state_topic: HashMap<String, FleidInfo>, // topic->TopicInfo
+    pub command_topic: HashMap<FleidInfo, String> // TopicInfo->topic
 }
 
 impl Topics {
@@ -60,19 +62,19 @@ pub fn mqtt_from_config(mqtt: &Mqtt) -> Topics {
     let mut topics = Topics::new();
 
     for item in &mqtt.light {
-        topics.state_topic.insert(item.state_topic.clone(), TopicInfo { id: item.entity_id.clone(), fleid_state: "is_on".to_string() });
+        topics.state_topic.insert(item.state_topic.clone(), FleidInfo { id: item.entity_id.clone(), fleid_state: "is_on".to_string() });
 
         if let Some(b) = &item.brightness_state_topic {
-            topics.state_topic.insert(b.clone(), TopicInfo { id: item.entity_id.clone(), fleid_state: "brightness".to_string() });
+            topics.state_topic.insert(b.clone(), FleidInfo { id: item.entity_id.clone(), fleid_state: "brightness".to_string() });
         }
 
         if let Some(ct) = &item.color_temp_state_topic {
-            topics.state_topic.insert(ct.clone(), TopicInfo { id: item.entity_id.clone(), fleid_state: "color_temp".to_string() });
+            topics.state_topic.insert(ct.clone(), FleidInfo { id: item.entity_id.clone(), fleid_state: "color_temp".to_string() });
         }
     }
 
     for item in &mqtt.sensor {
-         topics.state_topic.insert(item.state_topic.clone(), TopicInfo { id: item.entity_id.clone(), fleid_state: "value".to_string() });
+         topics.state_topic.insert(item.state_topic.clone(), FleidInfo { id: item.entity_id.clone(), fleid_state: "value".to_string() });
     }
 
 
@@ -80,6 +82,25 @@ pub fn mqtt_from_config(mqtt: &Mqtt) -> Topics {
     
 }
 
+
+
+#[test]
+
+fn test_load_topics() {
+    let config = Config::load_config("../../config.toml")
+        .expect("Не удалось загрузить конфиг");
+
+    let mqtt = config.mqtt;
+
+    let topics = mqtt_from_config(&mqtt);
+
+    println!("{:?}", topics)
+
+    
+
+    
+
+}
 
 
 //  mqtt: Mqtt {

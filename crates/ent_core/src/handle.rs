@@ -39,6 +39,17 @@ let _ = self.tx.send(EntityMessage::Register(entity));
                 source 
             });
      }
+
+    /// Обновить состояние поля. Fire-and-forget.
+    pub fn update_fleid(
+        &self,
+        entity_id: String,
+        fleid: String,
+        new_value: String,
+        source: UpdateSource,
+    ) { 
+        let _ = self.tx.send(EntityMessage::UpdateStateFleid { entity_id, fleid, new_value, source } );
+     }
   // блокирующий метод для сихронного кода  
   pub fn get_state_blocking(&self, entity_id: &str) -> Option<Entity> {
         let (tx, rx) = oneshot::channel();

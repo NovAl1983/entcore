@@ -15,6 +15,14 @@ pub enum EntityMessage {
         source: UpdateSource,
     },
 
+    /// Обновить поле состояния сущности.
+    UpdateStateFleid {
+        entity_id: String,
+        fleid: String,
+        new_value: String,
+        source: UpdateSource,
+    },
+
     /// Прочитать сущность по id. Ответ — через oneshot.
     GetState {
         entity_id: String,

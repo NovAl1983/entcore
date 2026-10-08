@@ -26,5 +26,18 @@ pub enum EntityState {
 // }
 
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct FleidInfo {
+    pub id: String,
+    // pub state: EntityState,
+    pub fleid_state: String,
+}
 
+impl   FleidInfo {
+    pub fn new(id: String, fleid_state: String) -> Self {
+        Self { id, fleid_state }
+
+    }
+    
+}
 

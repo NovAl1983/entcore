@@ -38,7 +38,7 @@ async  fn main() {
      let integrations = &config.integrations;
      let mqtt_config = integrations.mqtt.as_ref().expect("Секция [integrations.mqtt] обязательна");
 
-     let mqtt_bridge = MqttBridge::new(mqtt_config);
+     let mqtt_bridge = MqttBridge::new(mqtt_config, &config.mqtt, handle.clone());
      println!("✅ MqttBridge создан");
 
     //подписка на топики выполняется  в методе bridge.run()!!!!

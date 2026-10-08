@@ -55,6 +55,20 @@ impl EntityManager {
                         eprintln!("⚠️ UpdateState: неизвестная '{}'", entity_id);
                     }
                 },
+                EntityMessage::UpdateStateFleid { entity_id, fleid, new_value, source } => {
+                        if let Some(entity) = self.entities.get_mut(&entity_id) {
+                            let old_value = entity.state.
+                        if entity.state == new_value {
+                            continue;
+                        }
+                        entity.state = new_state;
+                        println!("🔄 '{}' обновлена (source: {:?})", entity_id, source);
+
+                    } else {
+                        eprintln!("⚠️ UpdateState: неизвестная '{}'", entity_id);
+                    }
+
+                }
                 EntityMessage::GetState { entity_id, reply } => {
                         let entity = self.entities.get(&entity_id).cloned();
                         let _ = reply.send(entity);
