@@ -17,4 +17,10 @@ pub enum EntityState {
 }
 
 
-
+#[derive(Debug, Clone, PartialEq)]
+pub enum FieldUpdate {
+    IsOn(bool),
+    Brightness(Option<u8>),
+    ColorTemp(Option<u16>),
+    Value(f64),
+}

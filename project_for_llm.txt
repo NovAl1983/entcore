@@ -1,0 +1,1026 @@
+=== Rust Rules Project ===
+=== Ветка: feature/update_state ===
+
+=== СТРУКТУРА ПРОЕКТА ===
+├── ./
+├── .git/
+├── crates/
+  ├── cfg/
+    ├── src/
+  ├── ent_core/
+    ├── src/
+    ├── tests/
+  ├── ent_ctl/
+    ├── src/
+  ├── ent_mqtt/
+    ├── examples/
+    ├── src/
+├── target/
+
+=== СОДЕРЖИМОЕ ФАЙЛОВ ===
+
+--- ./architecture.md ---
+# entcore - архитектурные решения
+
+## Версия 1 (2026-09-28)
+📌 Договорённости (v1)
+Архитектура
+Парадигма «Всё есть сущности» (HA-style).
+
+Entity — типизированный объект: id, friendly_name, state.
+
+EntityState — enum: BinarySensor, Sensor, Light, InputBoolean.
+
+Домены фиксированы: light, sensor, binary_sensor, input_boolean.
+
+entity_id формат: <domain>.<object_id>, например light.living_room.
+
+EntityManager — актор в отдельном std::thread.
+
+Владеет HashMap<String, Entity>.
+
+Общается через каналы (mpsc + oneshot).
+
+Никаких RwLock/Mutex на базе.
+
+Синхронный цикл blocking_recv.
+
+Сущности создаются в модулях своих протоколов (Вариант A).
+
+ent_mqtt: читает config.mqtt, создаёт Entity, регистрирует.
+
+ent_modbus: читает свою секцию, создаёт Entity, регистрирует.
+
+ent_helper: создаёт виртуальные сущности.
+
+ent_core не знает про Config.
+
+EntityManager принимает готовые Entity.
+
+Порядок регистрации — в main (ent_ctl), детерминированный.
+
+text
+let mqtt_entities   = mqtt::register(&config.mqtt, &handle)?;
+let http_entities   = http::register(&config.http, &handle)?;
+let helper_entities = helper::register(&config.helper, &handle)?;
+Модули — отдельные крейты.
+
+ent_core — ядро (без I/O, без serde).
+
+cfg — парсинг TOML.
+
+ent_ctl — main + запуск.
+
+ent_mqtt, ent_runes, ent_timer, ent_modbus — позже.
+
+Модель данных
+EntityState — минимальная, без Switch, Counter, Event.
+
+rust
+pub enum EntityState {
+    BinarySensor { is_on: bool },
+    Sensor { value: f64 },
+    Light {
+        is_on: bool,
+        brightness: Option<u8>,
+        color_temp: Option<u16>,
+    },
+    InputBoolean { is_on: bool },
+}
+Switch, Counter, Event — позже, когда понадобятся.
+
+Счётчики нажатий WB — позже (модель не решена).
+
+Serde — только на границе (cfg).
+
+EntityState — без serde.
+
+MqttLight, MqttSensor — с serde.
+
+PartialEq на EntityState и Entity — для дедупликации в EntityManager.
+
+Конфиг
+Option — только когда «отсутствие» семантически важно.
+
+Integrations.mqtt: Option<MqttBroker> — да.
+
+Mqtt.light: Vec<MqttLight> + #[serde(default)] — да.
+
+Option<Vec<T>> — никогда.
+
+EntityState не конвертируется из TOML напрямую.
+
+TOML → MqttLight (serde).
+
+MqttLight → Entity (код в ent_mqtt).
+
+Валидация
+Валидация — TODO. Позже решим:
+
+Уровень 1 (cfg): синтаксис, формат entity_id, уникальность. Без знания модели.
+
+Уровень 2 (ent_core): семантика — домен ↔ EntityState.
+
+Уровень 3 (отдельный модуль): сквозная проверка.
+
+Возможный вариант: cfg собирает все entity_id в мапу и проверяет уникальность.
+
+Решение отложено.
+
+Рантайм
+Перезапуск движка — ручной (systemctl restart). Без hot-reload.
+
+При ошибке конфига — паника/exit(1), не откат. Лучше упасть громко.
+
+Скрипты — stateless. Vm создаётся на событие, уничтожается. main() — чистая, только возвращает правила. Логика — в then-функциях.
+
+Вызов скриптов — по func_hash, не весь скрипт.
+
+Потоки (MVP):
+
+EntityManager — 1 std::thread.
+
+ScriptRunner — 1 std::thread (позже — пул).
+
+Timer — 1 std::thread.
+
+MqttBridge — tokio async (не std::thread).
+
+## Правило: минимум tokio
+
+- `ent_core`: `tokio = { features = ["sync"] }` — только mpsc/oneshot.
+- `ent_mqtt`, `ent_ctl`: полный tokio (rt, net, macros).
+- `ent_runes`, `ent_timer`, `ent_modbus`: только `std` + `tokio::sync` при необходимости.
+- По умолчанию — `std`. Tokio — исключение.
+
+## Идея: mqtt-bridge как отдельный микросервис (v3+)
+
+Проблема:
+- entcore с rumqttc внутри перезапускается → теряет connection.
+- sleep(N) при старте — костыль.
+- Retained перезагружаются каждый раз.
+
+Идея:
+- Отдельный бинарник mqtt-bridge.
+- Держит connection с брокером всегда.
+- Общается с entcore через IPC (Unix socket?).
+- При старте entcore — сразу шлёт snapshot.
+
+Плюсы:
+- Нет sleep при старте.
+- Быстрый перезапуск entcore.
+- Разделение MQTT и ядра.
+- mqtt-bridge — маленький и простой.
+
+Минусы:
+- IPC — сложность.
+- Управление процессами.
+- Отладка двух процессов.
+- Схема сообщений.
+
+Решение: отложено до v3. Сначала — монолит с ent_mqtt внутри.
+
+## Микросервисы (v3+)
+
+Идеи:
+- mqtt-bridge: отдельный сервис, держит connection всегда.
+- web-bridge: WebUI.
+- logger-bridge: централизованные логи.
+
+Проблемы, которые решают:
+- Перезапуск entcore без потери MQTT.
+- Централизованный UI.
+- Один поток логов.
+
+Почему отложено:
+- MVP — монолит.
+- Микросервисы — преждевременная оптимизация.
+- Сложность: IPC, управление процессами, отладка.
+
+Когда пересмотреть:
+- Когда entcore станет >5000 строк.
+- Когда понадобится live-WebUI.
+- Когда перезапуск entcore станет болезненным.
+--- ./Cargo.toml ---
+[workspace]
+members = [
+    "crates/ent_core",
+    "crates/cfg",
+    "crates/ent_ctl",
+    "crates/ent_mqtt"]
+
+resolver = "2"
+
+--- ./config.toml ---
+# =====================================================================
+# НАСТРОЙКИ СИСТЕМЫ И ИНТЕГРАЦИЙ
+# =====================================================================
+[system]
+scripts_directory = "D:\\Rust\\projects\\rust_rules\\rune_scripts"
+
+[integrations.mqtt]
+host = "localhost"
+port = 1883
+
+
+[integrations.modbus_rtu]
+port = "/dev/ttyRS485-1"
+baud_rate = 9600
+data_bits = 8
+stop_bits = 2
+parity = "N"
+
+# =====================================================================
+# РЕЕСТР СУЩНОСТЕЙ ПО ПЛАТФОРМАМ (INTEGRATIONS)
+# =====================================================================
+
+# 🌐 1. УСТРОЙСТВА, РАБОТАЮЩИЕ ЧЕРЕЗ MQTT
+[[mqtt.light]]
+entity_id = "light.living_room"
+name = "люстра в зале"
+state_topic = "/devices/wb-mr6cv3_189/controls/K2"
+command_topic = "/devices/wb-mr6cv3_189/controls/K2/on"
+brightness_state_topic = "/devices/wb-mr6cv3_189/controls/Brightness"
+brightness_command_topic = "/devices/wb-mr6cv3_189/controls/Brightness/on"
+brightness_scale = 254
+
+[[mqtt.light]]
+entity_id = "light.kitchen"
+name = "люстра на кухне"
+state_topic = "/devices/wb-mr6cv3_200/controls/K2"
+command_topic = "/devices/wb-mr6cv3_200/controls/K2/on"
+brightness_state_topic = "/devices/wb-mr6cv3_200/controls/Brightness"
+brightness_command_topic = "/devices/wb-mr6cv3_200/controls/Brightness/on"
+brightness_scale = 254
+color_temp_state_topic = "/devices/wb-mr6cv3_200/controls/Brightness"
+color_temp_command_topic = "/devices/wb-mr6cv3_200/controls/Brightness/on"
+color_temp_scale = 254
+
+[[mqtt.sensor]]
+entity_id = "sensor.kitchen_motion"
+name = "датчик движения кухня"
+state_topic = "/devices/wb-msw-v4_220/controls/Current Motion"
+
+[[mqtt.sensor]]
+entity_id = "sensor.kitchen_illuminance"
+name = "датчик освещенности кухня"
+state_topic = "/devices/wb-msw-v4_200/controls/Illuminance"
+
+
+# ☁️ 3. УСТРОЙСТВА ИЗ ИНТЕРНЕТА (HTTP / REST)
+[[http]]
+entity_id = "sensor.yandex_weather"
+name = "Погода"
+url = "https://yandex.ru"
+scan_interval = 600
+
+# 🧠 4. ВИРТУАЛЬНЫЕ ПОМОЩНИКИ (HELPERS - НА СТОРОНЕ ЯДРА RUST)
+[[helper.input_boolean]]
+entity_id = "input_boolean.night_mode"
+name = "Ночной режим"
+initial = false
+
+
+# =====================================================================
+# все что ниже пока не реализовываем (заметки на будущее!!!)
+# =====================================================================
+
+
+# ПРИМЕРЫ ДРУГИХ ПЛАТФОРМ (НА БУДУЩИЕ)
+
+# 🛠️ 2. БУДУЩИЕ УСТРОЙСТВА, РАБОТАЮЩИЕ ЧЕРЕЗ MODBUS RTU НАПРЯМУЮ (БЕЗ MQTT драйвера WB)
+#[[modbus_rtu.switch]]
+#entity_id = "switch.ventilation_relay"
+#name = "Реле вентиляции"
+#slave_id = 14
+#register_address = 0
+#register_type = "holding" # или coil
+
+#[[modbus_rtu.sensor]]
+#entity_id = "sensor.outdoor_temperature"
+#name = "Уличная температура"
+#slave_id = 25
+#register_address = 4
+#register_type = "input"
+#data_type = "f32"
+
+#  ПРИМЕР СОЗДАНИЯ ВИРТУАЛЬНОГО УСТРОЙСТВА (MQTT) (из старого проекта пока нет  в планах реализовавать)
+# виртуальное устройство термостат
+#[virtual.house_thermostat]
+#target = '''{"topic_type": "range", "value": 27.0, "type": "f64",   "min": 10, "max": 30, "retain": true } '''
+#current_temp = '''{"topic_type": "range", "value": 32.0, "type": "f64", "retain": true, "readonly": true, "forceDefault": true}'''
+#activaited = ''' {"topic_type": "switch", "value": false, "type": "bool", "retain": true }'''
+--- ./crates/cfg/Cargo.toml ---
+[package]
+name = "cfg"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
+serde_json = "1" 
+
+--- ./crates/cfg/src/lib.rs ---
+
+//cd /d/Rust/projects/entcore/config.toml
+//D:\Rust\projects\entcore\config.toml
+
+
+//use std::{collections::HashMap, println};
+use serde::Deserialize;
+use std::error::Error;
+
+
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct Config {
+pub system: System,
+pub integrations: Integrations,
+#[serde(default)]
+pub mqtt: Mqtt,
+#[serde(default)]
+pub http: Vec<Http>,
+#[serde(default)]
+pub helper: Helper,
+}
+
+
+
+impl Config {
+    pub fn load_config(path: &str) -> Result<Self, Box<dyn Error + Send + Sync>> {
+        let cfg_str = std::fs::read_to_string(path)?;
+        let config: Config = toml::from_str(&cfg_str)?;
+        
+        let has_integration = config.integrations.mqtt.is_some()
+            || config.integrations.modbus_rtu.is_some();
+        let has_helper = !config.helper.input_boolean.is_empty();
+        
+        if !has_integration && !has_helper {
+            return Err(format!(
+                "Конфиг {path} пуст: нет ни интеграций (mqtt/modbus_rtu), \
+                 ни helpers (input_boolean). Движку не с чем работать."
+            ).into());
+        }
+        
+        Ok(config)
+    }
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct System {
+    pub scripts_directory: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct Integrations {
+    pub mqtt: Option<MqttBroker>,
+    pub modbus_rtu:Option<ModbusRtu>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct MqttBroker {
+    pub host: String,
+    pub  port: u16,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct ModbusRtu {
+    pub port: String, // "/dev/ttyRS485-1"
+    pub baud_rate: u32, //  9600
+    pub data_bits: u8, // 8
+    pub stop_bits: u8, // 2
+    // TODO: заменить на enum Parity
+    pub parity: String, // "N"
+}
+
+
+#[derive(Debug, Deserialize, Clone, Default)]
+pub struct Mqtt {
+    #[serde(default)]
+    pub light: Vec<MqttLight>,
+    #[serde(default)]
+    pub sensor: Vec<MqttSensor>,
+
+}
+
+#[derive(Debug, Deserialize, Clone, Default)]
+pub struct MqttLight {
+    pub entity_id: String,
+    pub name: String,
+    pub state_topic: String,
+    pub command_topic: String,
+    pub brightness_state_topic: String,
+    pub brightness_command_topic: String,
+    pub brightness_scale: u16,
+}
+
+#[derive(Debug, Deserialize, Clone, Default)]
+pub struct MqttSensor {
+    pub entity_id: String,
+    pub name: String,
+    pub state_topic: String
+}
+
+#[derive(Debug, Deserialize, Clone, Default)]
+pub struct Http {
+    pub entity_id: String,
+    pub name: String,
+    pub url: String,
+    pub scan_interval: u64,
+}
+
+#[derive(Debug, Deserialize, Clone, Default)]
+pub struct Helper {
+    #[serde(default)]
+    pub input_boolean: Vec<HelperInputBoolean>,
+}
+
+
+#[derive(Debug, Deserialize, Clone, Default)]
+pub struct HelperInputBoolean {
+    pub entity_id: String,
+    pub name: String,
+    pub initial: bool,
+}
+
+#[test]
+fn test_load_full_config() {
+    let config = Config::load_config("../../config.toml")
+        .expect("Не удалось загрузить конфиг");
+    println!("{:#?}", config);
+    
+    // MQTT — обязательная секция в тестовом конфиге
+    let mqtt = config.integrations.mqtt.as_ref()
+        .expect("Ожидалась секция [integrations.mqtt]");
+    assert_eq!(mqtt.host, "localhost");
+    assert_eq!(mqtt.port, 1883);
+    
+    // Modbus — тоже есть в тестовом конфиге
+    let modbus = config.integrations.modbus_rtu.as_ref()
+        .expect("Ожидалась секция [integrations.modbus_rtu]");
+    assert_eq!(modbus.port, "/dev/ttyRS485-1");
+    
+    // Сущности
+    assert_eq!(config.mqtt.light.len(), 1);
+    assert_eq!(config.mqtt.light[0].entity_id, "light.living_room");
+    assert_eq!(config.mqtt.sensor.len(), 2);
+    assert_eq!(config.http.len(), 1);
+    assert_eq!(config.helper.input_boolean.len(), 1);
+}
+--- ./crates/ent_core/Cargo.toml ---
+[package]
+name = "ent_core"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tokio = { version = "1", features = ["sync"] }
+
+--- ./crates/ent_core/src/entity.rs ---
+
+use crate::state::EntityState;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Entity {
+    pub id: String,
+    pub friendly_name: String,
+    pub state: EntityState,
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_create_entity() {
+        let e = Entity {
+            id: "light.living_room".to_string(),
+            friendly_name: "Люстра в зале".to_string(),
+            state: EntityState::Light {
+                is_on: false,
+                brightness: Some(128),
+                color_temp: None,
+            },
+        };
+        assert_eq!(e.id, "light.living_room");
+        assert_eq!(e.state, EntityState::Light {
+            is_on: false,
+            brightness: Some(128),
+            color_temp: None,
+        });
+    }
+}
+--- ./crates/ent_core/src/handle.rs ---
+use tokio::sync::mpsc;
+use tokio::sync::oneshot;
+
+
+
+use crate::message::{EntityMessage, UpdateSource};
+use crate::entity::Entity;
+use crate::state::EntityState;
+
+/// Пульт управления EntityManager.
+/// Клонируется, раздаётся модулям.
+#[derive(Clone)]
+pub struct EntityHandle {
+    tx: mpsc::UnboundedSender<EntityMessage>,
+}
+
+impl EntityHandle {
+    pub(crate) fn new(tx: mpsc::UnboundedSender<EntityMessage>) -> Self { 
+        Self {tx}
+     }
+    
+    /// Зарегистрировать сущность. Fire-and-forget.
+    pub fn register(&self, entity: Entity) {
+let _ = self.tx.send(EntityMessage::Register(entity));
+
+    }
+
+    
+    /// Обновить состояние. Fire-and-forget.
+    pub fn update_state(
+        &self,
+        entity_id: impl Into<String>,
+        new_state: EntityState,
+        source: UpdateSource,
+    ) { 
+        let _ = self.tx.send(EntityMessage::UpdateState { 
+                entity_id: entity_id.into(), 
+                new_state, 
+                source 
+            });
+     }
+  // блокирующий метод для сихронного кода  
+  pub fn get_state_blocking(&self, entity_id: &str) -> Option<Entity> {
+        let (tx, rx) = oneshot::channel();
+        self.tx.send(EntityMessage::GetState {
+            entity_id: entity_id.to_string(),
+            reply: tx,
+        }).ok()?;
+        rx.blocking_recv().ok()?
+    }
+
+
+// не блокирующий метод для async 
+   pub async fn get_state(&self, entity_id: &str) -> Option<Entity> {
+        let (tx, rx) = oneshot::channel();
+        self.tx.send(EntityMessage::GetState {
+            entity_id: entity_id.to_string(),
+            reply: tx,
+        }).ok()?;
+        rx.await.ok()?
+    }
+    
+  //  /// Прочитать сущность (async).
+    // pub async fn get_state(&self, entity_id: &str) -> Option<Entity> { ... }
+    
+  //  /// Список всех (async).
+    // pub async fn list_all(&self) -> Vec<Entity> { ... }
+    
+   // /// Завершить работу.
+    // pub fn shutdown(&self) { ... }
+}
+--- ./crates/ent_core/src/lib.rs ---
+pub mod state;
+pub mod entity;
+pub mod message;
+pub mod handle;
+pub mod manager;
+
+pub use state::EntityState;
+pub use entity::Entity;
+pub use message::{EntityMessage, UpdateSource};
+pub use handle::EntityHandle;
+pub use manager::EntityManager;
+
+
+
+
+
+--- ./crates/ent_core/src/manager.rs ---
+use std::collections::HashMap;
+use std::{println, thread,};
+
+use tokio::sync::mpsc;
+
+use crate::entity::Entity;
+use crate::handle::EntityHandle;
+use crate::message::EntityMessage;
+
+pub struct EntityManager {
+    rx: mpsc::UnboundedReceiver<EntityMessage>,
+    entities: HashMap<String, Entity>,
+}
+
+impl EntityManager {
+    pub fn spawn() -> EntityHandle {
+        let (tx, rx) = mpsc::unbounded_channel();
+
+        let manager = Self {
+            rx,
+            entities: HashMap::new(),
+        };
+
+        thread::Builder::new()
+            .name("entity-manager".into())
+            .spawn(move || manager.run())
+            .expect("Не удалось запустить поток EntityManager");
+
+        EntityHandle::new(tx)
+    }
+
+    fn run(mut self) {
+        while let Some(msg) = self.rx.blocking_recv() {
+            match msg {
+                EntityMessage::Register(entity) => {
+                    let id = entity.id.clone();
+                  if  self.entities.contains_key(&id) {
+                    println!("Сущность с  id = {} уже существует", id);
+                    continue;
+                    }
+                   
+                    self.entities.insert(entity.id.clone(), entity);
+                    println!("Сущность с  id = {} добавленна в entities", id);
+                   
+                },
+                EntityMessage::UpdateState {entity_id, new_state, source } => {
+                    if let Some(entity) = self.entities.get_mut(&entity_id) {
+                        if entity.state == new_state {
+                            continue;
+                        }
+                        entity.state = new_state;
+                        println!("🔄 '{}' обновлена (source: {:?})", entity_id, source);
+
+                    } else {
+                        eprintln!("⚠️ UpdateState: неизвестная '{}'", entity_id);
+                    }
+                },
+                EntityMessage::GetState { entity_id, reply } => {
+                        let entity = self.entities.get(&entity_id).cloned();
+                        let _ = reply.send(entity);
+
+                },
+                EntityMessage::ListAll { reply } => {
+                    let all: Vec<Entity> = self.entities.values().cloned().collect();
+                    let _ =reply.send(all);
+                },
+                EntityMessage::Shutdown => {
+                    println!("EntityManager: получен Shutdown");
+                    break;
+                },
+            }
+        }
+
+
+    }
+}
+
+
+
+
+--- ./crates/ent_core/src/message.rs ---
+use crate::entity::Entity;
+use crate::state::EntityState;
+use tokio::sync::oneshot;
+
+/// Сообщения, которые модули шлют в EntityManager.
+#[derive(Debug)]
+pub enum EntityMessage {
+    /// Зарегистрировать сущность при старте.
+    Register(Entity),
+
+    /// Обновить состояние сущности.
+    UpdateState {
+        entity_id: String,
+        new_state: EntityState,
+        source: UpdateSource,
+    },
+
+    /// Прочитать сущность по id. Ответ — через oneshot.
+    GetState {
+        entity_id: String,
+        reply: oneshot::Sender<Option<Entity>>,
+    },
+
+
+    /// Получить список всех сущностей. Для отладки и WebUI.
+    ListAll {
+        reply: oneshot::Sender<Vec<Entity>>,
+    },
+
+    /// Завершить работу актора.
+    Shutdown,
+}
+
+/// Кто инициировал изменение.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UpdateSource {
+    Mqtt,
+    Script,
+    Timer,
+    Helper,
+    System,
+}
+--- ./crates/ent_core/src/state.rs ---
+
+
+
+
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum EntityState {
+    Light {
+        is_on: bool,
+        brightness: Option<u8>,
+        color_temp: Option<u16>,
+    },
+    Sensor {value: f64},
+    BinarySensor {is_on: bool},
+    Counter {value: u64},
+    InputBoolean {is_on: bool},
+}
+
+
+
+
+--- ./crates/ent_core/tests/manager_test.rs ---
+use ent_core::{Entity, EntityHandle, EntityManager, EntityState, UpdateSource};
+
+#[test]
+fn test_register_and_get() {
+    // 1. Создаём EntityManager
+    let handle = EntityManager::spawn();
+    
+    // 2. Создаём сущность
+    let light = Entity {
+        id: "light.living_room".to_string(),
+        friendly_name: "Люстра в зале".to_string(),
+        state: EntityState::Light {
+            is_on: false,
+            brightness: None,
+            color_temp: None,
+        },
+    };
+    
+    // 3. Регистрируем
+    handle.register(light.clone());
+    
+    // 4. Небольшая пауза, чтобы сообщение дошло
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    
+    // 5. Читаем через handle
+    let result = handle.get_state_blocking("light.living_room");
+    
+    // 6. Проверяем
+    assert!(result.is_some(), "Сущность должна быть найдена");
+    let entity = result.unwrap();
+    assert_eq!(entity.id, "light.living_room");
+    assert_eq!(entity.friendly_name, "Люстра в зале");
+}
+--- ./crates/ent_ctl/Cargo.toml ---
+[package]
+name = "ent_ctl"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+cfg = { path = "../cfg" }
+ent_core = { path = "../ent_core" }
+ent_mqtt = { path = "../ent_mqtt" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+--- ./crates/ent_ctl/src/main.rs ---
+use std::println;
+
+use cfg::Config;
+use ent_core::EntityManager;
+use ent_mqtt::{mqtt_entities_from_config, MqttBridge};
+
+
+#[tokio::main]
+async  fn main() {
+    println!("Запуск entcore...");
+
+    // 1. Читаем конфиг
+    let config = Config::load_config("config.toml").expect("Не удалось загрузить конфиг");
+    println!("✅ Конфиг загружен");
+
+    // 2. Создаём EntityManager
+    let handle = EntityManager::spawn();
+    println!("✅ EntityManager запущен");
+
+    // 3. Конвертируем MQTT-сущности и Регистрируем их
+    let mqtt_entities = mqtt_entities_from_config(&config.mqtt);
+    println!("📦 Создано {} MQTT-сущностей", mqtt_entities.len()); 
+    for entity in mqtt_entities {
+        handle.register(entity);
+    }
+
+    // 4. HACK: Пауза — дать менеджеру обработать (пока костыль), лучше ждать все подписки или таймаут если не все ответят!!!
+    std::thread::sleep(std::time::Duration::from_millis(50));
+
+    // 5. Проверяем: читаем одну сущность
+    if let Some(entity) = handle.get_state("light.living_room").await {
+        println!("✅ Прочитана: {} = {:?}", entity.id, entity.state);
+    } else {
+        eprintln!("⚠️ Сущность 'light.living_room' не найдена");
+    }
+
+     // 6. MQTT bridge
+     let integrations = &config.integrations;
+     let mqtt_config = integrations.mqtt.as_ref().expect("Секция [integrations.mqtt] обязательна");
+
+     let mqtt_bridge = MqttBridge::new(mqtt_config);
+     println!("✅ MqttBridge создан");
+
+    //подписка на топики выполняется  в методе bridge.run()!!!!
+    //  // 7. Подписка на один топик для теста (потом — на все)
+    //  bridge.subscribe("/devices/wb-msw-v4_220/controls/Current Motion").await.expect("Не удалось подписаться");
+    //  println!("✅ Подписка выполнена");
+
+     // 8. Запускаем bridge в фоне + подписываемся на топики, main ждёт
+    let bridge_handle = tokio::spawn(async move {
+        mqtt_bridge.run().await;
+    });
+
+    println!("📡 MQTT bridge запущен. Ждём 30 секунд...");
+    tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+
+
+
+    // 9. Завершаемся
+    println!("Завершение.");
+    bridge_handle.abort();
+
+}
+
+--- ./crates/ent_mqtt/Cargo.toml ---
+[package]
+name = "ent_mqtt"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+cfg = { path = "../cfg" }
+ent_core = { path = "../ent_core" }
+rumqttc = "0.24"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+
+
+--- ./crates/ent_mqtt/examples/publisher.rs ---
+// ent_mqtt/examples/publisher.rs
+use std::time::Duration;
+use rumqttc::{AsyncClient, MqttOptions, QoS};
+
+#[tokio::main]
+async fn main() {
+    let mut options = MqttOptions::new("test-pub", "localhost", 1883);
+    options.set_keep_alive(Duration::from_secs(5));
+    let (client, mut eventloop) = AsyncClient::new(options, 10);
+    
+    // Крутим eventloop в фоне
+    tokio::spawn(async move {
+        loop {
+            let _ = eventloop.poll().await;
+        }
+    });
+    
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    
+    client.publish(
+        "/devices/wb-msw-v4_220/controls/Current Motion",
+        QoS::AtLeastOnce,
+        true,
+        "1",
+    ).await.unwrap();
+    
+    println!("📤 Опубликовано");
+    tokio::time::sleep(Duration::from_millis(500)).await;
+}
+--- ./crates/ent_mqtt/src/bridge.rs ---
+use std::time::Duration;
+
+use rumqttc::{AsyncClient, Event, Incoming, MqttOptions, QoS};
+
+use cfg::MqttBroker;
+
+pub  struct  MqttBridge {
+    client: AsyncClient,
+    eventloop: rumqttc::EventLoop,
+}
+
+impl MqttBridge {
+
+    pub fn new(config: &MqttBroker) -> Self {
+        let mut options = MqttOptions::new("entcore", &config.host, config.port);
+        options.set_keep_alive(Duration::from_secs(5));
+
+        let (client, eventloop) = AsyncClient::new(options, 50);
+
+        Self { client, eventloop }
+    }
+
+    pub async fn subscribe(&self, topic: &str) -> Result<(), rumqttc::ClientError> {
+        self.client.subscribe(topic, QoS::AtLeastOnce).await
+    }
+
+    pub async fn run(mut self) {
+        loop {
+            match self.eventloop.poll().await {
+                Ok(Event::Incoming(Incoming::Publish(p))) => {
+                    let payload = String::from_utf8_lossy(&p.payload);
+                    println!("📩 MQTT: topic='{}', payload='{}'", p.topic, payload);
+                }
+                Ok(Event::Incoming(Incoming::ConnAck(_))) => {
+                    println!("✅ MQTT: ConnAck подключено к брокеру");
+                    let _ = self.client.subscribe("/devices/wb-msw-v4_220/controls/Current Motion", QoS::AtLeastOnce).await;
+                }
+                Ok(Event::Incoming(Incoming::SubAck(s))) => {
+                    println!("✅ MQTT: SubAck подтвереждение от броекра {:?}", s );
+                    // let _ = self.client.subscribe("/devices/wb-msw-v4_220/controls/Current Motion", QoS::AtLeastOnce).await;
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    eprintln!("⚠️ MQTT ошибка: {}", e);
+                    // при ошибке — пауза, чтобы не спамить
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                }
+            }
+        }
+    }
+
+}
+
+
+--- ./crates/ent_mqtt/src/converter.rs ---
+
+use cfg::Mqtt;
+use ent_core::{Entity, EntityState};
+
+//-> Vec<Entity>
+pub fn mqtt_entities_from_config(mqtt: &Mqtt) -> Vec<Entity> {
+    let mut entities: Vec<Entity> = Vec::new();
+
+    for item in &mqtt.light {
+        let entity = Entity {
+            id: item.entity_id.clone(),
+            friendly_name: item.name.clone(),
+            state: EntityState::Light { is_on: false, brightness: None, color_temp: None }
+        };
+        entities.push(entity); 
+    }
+
+    for item in &mqtt.sensor {
+        let entity = Entity {
+            id: item.entity_id.clone(),
+            friendly_name: item.name.clone(),
+            state: EntityState::Sensor { value: 0.0 }
+        };
+        entities.push(entity); 
+    }
+
+    entities
+
+}
+
+
+
+// mqtt: Mqtt {
+//         light: [
+//             MqttLight {
+//                 entity_id: "light.living_room",
+//                 name: "люстра в зале",
+//                 state_topic: "/devices/wb-mr6cv3_189/controls/K2",
+//                 command_topic: "/devices/wb-mr6cv3_189/controls/K2/on",
+//                 brightness_state_topic: "/devices/wb-mr6cv3_189/controls/Brightness",
+//                 brightness_command_topic: "/devices/wb-mr6cv3_189/controls/Brightness/on",
+//                 brightness_scale: 254,
+//             },
+//         ],
+//         sensor: [
+//             MqttSensor {
+//                 entity_id: "sensor.kitchen_motion",
+//                 name: "датчик движения кухня",
+//                 state_topic: "/devices/wb-msw-v4_220/controls/Current Motion",
+//             },
+//             MqttSensor {
+//                 entity_id: "sensor.kitchen_illuminance",
+//                 name: "датчик освещенности кухня",
+//                 state_topic: "/devices/wb-msw-v4_200/controls/Illuminance",
+//             },
+//         ],
+//     },
+--- ./crates/ent_mqtt/src/lib.rs ---
+pub mod converter;
+pub mod bridge;
+
+use std::collections::HashMap;
+
+pub use converter::mqtt_entities_from_config;
+pub use bridge::MqttBridge;
+
+
+--- ./NOTES.md ---

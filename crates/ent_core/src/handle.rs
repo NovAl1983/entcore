@@ -5,7 +5,7 @@ use tokio::sync::oneshot;
 
 use crate::message::{EntityMessage, UpdateSource};
 use crate::entity::Entity;
-use crate::state::EntityState;
+use crate::state::{EntityState, FieldUpdate};
 
 /// Пульт управления EntityManager.
 /// Клонируется, раздаётся модулям.
@@ -39,6 +39,20 @@ let _ = self.tx.send(EntityMessage::Register(entity));
                 source 
             });
      }
+/// Обновить состояние конкретного поля сущности
+     pub fn update_field(
+    &self,
+    entity_id: impl Into<String>,
+    field: FieldUpdate,
+    source: UpdateSource,
+) {
+    let _ = self.tx.send(EntityMessage::UpdateStateField {
+        entity_id: entity_id.into(),
+        field,
+        source,
+    });
+}
+
   // блокирующий метод для сихронного кода  
   pub fn get_state_blocking(&self, entity_id: &str) -> Option<Entity> {
         let (tx, rx) = oneshot::channel();

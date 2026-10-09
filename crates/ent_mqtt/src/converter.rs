@@ -1,6 +1,25 @@
 
 use cfg::Mqtt;
 use ent_core::{Entity, EntityState};
+use std::collections::HashMap;
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum TopicKind {
+    LightIsOn,
+    LightBrightness,
+    LightColorTemp,
+    SensorValue,
+}
+
+#[derive(Debug, Clone)]
+pub struct FieldMapping {
+    pub entity_id: String,
+    pub kind: TopicKind,
+}
+pub struct Topics {
+    pub state_topic: HashMap<String, FieldMapping>,   // topic → mapping
+}
+
 
 //-> Vec<Entity>
 pub fn mqtt_entities_from_config(mqtt: &Mqtt) -> Vec<Entity> {
@@ -27,6 +46,51 @@ pub fn mqtt_entities_from_config(mqtt: &Mqtt) -> Vec<Entity> {
     entities
 
 }
+
+pub fn mqtt_from_config(mqtt: &Mqtt) -> Topics {
+    let mut topics = Topics { state_topic: HashMap::new() };
+
+    for light in &mqtt.light {
+        topics.state_topic.insert(
+            light.state_topic.clone(),
+            FieldMapping {
+                entity_id: light.entity_id.clone(),
+                kind: TopicKind::LightIsOn,
+            },
+        );
+        if let Some(topic) = &light.brightness_state_topic {
+            topics.state_topic.insert(
+                topic.clone(),
+                FieldMapping {
+                    entity_id: light.entity_id.clone(),
+                    kind: TopicKind::LightBrightness,
+                },
+            );
+        }
+        if let Some(topic) = &light.color_temp_state_topic {
+            topics.state_topic.insert(
+                topic.clone(),
+                FieldMapping {
+                    entity_id: light.entity_id.clone(),
+                    kind: TopicKind::LightColorTemp,
+                },
+            );
+        }
+    }
+
+    for sensor in &mqtt.sensor {
+        topics.state_topic.insert(
+            sensor.state_topic.clone(),
+            FieldMapping {
+                entity_id: sensor.entity_id.clone(),
+                kind: TopicKind::SensorValue,
+            },
+        );
+    }
+
+    topics
+}
+
 
 
 

@@ -38,7 +38,7 @@ command_topic = "/devices/wb-mr6cv3_200/controls/K2/on"
 brightness_state_topic = "/devices/wb-mr6cv3_200/controls/Brightness"
 brightness_command_topic = "/devices/wb-mr6cv3_200/controls/Brightness/on"
 brightness_scale = 254
-color_temp_state_topic = "/devices/wb-mr6cv3_200/controls/Brightness"
+color_temp_state_topic = "/devices/wb-mr6cv3_200/controls/ColorTemp"
 color_temp_command_topic = "/devices/wb-mr6cv3_200/controls/Brightness/on"
 color_temp_scale = 254
 

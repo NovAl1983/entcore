@@ -6,6 +6,7 @@ use tokio::sync::mpsc;
 use crate::entity::Entity;
 use crate::handle::EntityHandle;
 use crate::message::EntityMessage;
+use  crate::state::{EntityState, FieldUpdate};
 
 pub struct EntityManager {
     rx: mpsc::UnboundedReceiver<EntityMessage>,
@@ -55,6 +56,43 @@ impl EntityManager {
                         eprintln!("⚠️ UpdateState: неизвестная '{}'", entity_id);
                     }
                 },
+                EntityMessage::UpdateStateField { entity_id, field, source } => {
+    if let Some(entity) = self.entities.get_mut(&entity_id) {
+        match (&mut entity.state, field) {
+            (EntityState::Light { is_on, .. }, FieldUpdate::IsOn(v)) => {
+                if *is_on == v { continue; }
+                *is_on = v;
+            }
+            (EntityState::Light { brightness, .. }, FieldUpdate::Brightness(v)) => {
+                if *brightness == v { continue; }
+                *brightness = v;
+            }
+            (EntityState::Light { color_temp, .. }, FieldUpdate::ColorTemp(v)) => {
+                if *color_temp == v { continue; }
+                *color_temp = v;
+            }
+            (EntityState::Sensor { value }, FieldUpdate::Value(v)) => {
+                if *value == v { continue; }
+                *value = v;
+            }
+            (EntityState::BinarySensor { is_on }, FieldUpdate::IsOn(v)) => {
+                if *is_on == v { continue; }
+                *is_on = v;
+            }
+            (EntityState::InputBoolean { is_on }, FieldUpdate::IsOn(v)) => {
+                if *is_on == v { continue; }
+                *is_on = v;
+            }
+            _ => {
+                eprintln!("⚠️ Несовместимое поле для '{}'", entity_id);
+                continue;
+            }
+        }
+        println!("🔄 '{}' обновлена (field, source: {:?})", entity_id, source);
+    } else {
+        eprintln!("⚠️ UpdateStateField: неизвестная '{}'", entity_id);
+    }
+}
                 EntityMessage::GetState { entity_id, reply } => {
                         let entity = self.entities.get(&entity_id).cloned();
                         let _ = reply.send(entity);
