@@ -1,4 +1,5 @@
 === Rust Rules Project ===
+=== Ветка: feature/update_state ===
 
 === СТРУКТУРА ПРОЕКТА ===
 ├── ./
@@ -409,12 +410,9 @@ pub struct MqttLight {
     pub name: String,
     pub state_topic: String,
     pub command_topic: String,
-    pub brightness_state_topic: Option<String>,
-    pub brightness_command_topic: Option<String>,
-    pub brightness_scale: Option<u16>,
-    pub color_temp_state_topic: Option<String>,
-    pub color_temp_command_topic: Option<String>,
-    pub color_temp_scale: Option<u16>,
+    pub brightness_state_topic: String,
+    pub brightness_command_topic: String,
+    pub brightness_scale: u16,
 }
 
 #[derive(Debug, Deserialize, Clone, Default)]
@@ -556,17 +554,6 @@ let _ = self.tx.send(EntityMessage::Register(entity));
                 source 
             });
      }
-
-    /// Обновить состояние поля. Fire-and-forget.
-    pub fn update_fleid(
-        &self,
-        entity_id: String,
-        fleid: String,
-        new_value: String,
-        source: UpdateSource,
-    ) { 
-        let _ = self.tx.send(EntityMessage::UpdateStateFleid { entity_id, fleid, new_value, source } );
-     }
   // блокирующий метод для сихронного кода  
   pub fn get_state_blocking(&self, entity_id: &str) -> Option<Entity> {
         let (tx, rx) = oneshot::channel();
@@ -672,20 +659,6 @@ impl EntityManager {
                         eprintln!("⚠️ UpdateState: неизвестная '{}'", entity_id);
                     }
                 },
-                EntityMessage::UpdateStateFleid { entity_id, fleid, new_value, source } => {
-                        if let Some(entity) = self.entities.get_mut(&entity_id) {
-                            let old_value = entity.state.
-                        if entity.state == new_value {
-                            continue;
-                        }
-                        entity.state = new_state;
-                        println!("🔄 '{}' обновлена (source: {:?})", entity_id, source);
-
-                    } else {
-                        eprintln!("⚠️ UpdateState: неизвестная '{}'", entity_id);
-                    }
-
-                }
                 EntityMessage::GetState { entity_id, reply } => {
                         let entity = self.entities.get(&entity_id).cloned();
                         let _ = reply.send(entity);
@@ -727,14 +700,6 @@ pub enum EntityMessage {
         source: UpdateSource,
     },
 
-    /// Обновить поле состояния сущности.
-    UpdateStateFleid {
-        entity_id: String,
-        fleid: String,
-        new_value: String,
-        source: UpdateSource,
-    },
-
     /// Прочитать сущность по id. Ответ — через oneshot.
     GetState {
         entity_id: String,
@@ -766,7 +731,6 @@ pub enum UpdateSource {
 
 
 
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum EntityState {
     Light {
@@ -780,29 +744,7 @@ pub enum EntityState {
     InputBoolean {is_on: bool},
 }
 
-// pub enum Value {
-//     is_on(bool),
-//     brightness(Option<u8>),
-//     color_temp(Option<u16>),
-//     value_f64(f64),
-//     value_u64(u64),
-// }
 
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct FleidInfo {
-    pub id: String,
-    // pub state: EntityState,
-    pub fleid_state: String,
-}
-
-impl   FleidInfo {
-    pub fn new(id: String, fleid_state: String) -> Self {
-        Self { id, fleid_state }
-
-    }
-    
-}
 
 
 --- ./crates/ent_core/tests/manager_test.rs ---
@@ -891,7 +833,7 @@ async  fn main() {
      let integrations = &config.integrations;
      let mqtt_config = integrations.mqtt.as_ref().expect("Секция [integrations.mqtt] обязательна");
 
-     let mqtt_bridge = MqttBridge::new(mqtt_config, &config.mqtt, handle.clone());
+     let mqtt_bridge = MqttBridge::new(mqtt_config);
      println!("✅ MqttBridge создан");
 
     //подписка на топики выполняется  в методе bridge.run()!!!!
@@ -959,41 +901,26 @@ async fn main() {
     tokio::time::sleep(Duration::from_millis(500)).await;
 }
 --- ./crates/ent_mqtt/src/bridge.rs ---
-use std::{collections::HashMap, time::Duration};
+use std::time::Duration;
 
 use rumqttc::{AsyncClient, Event, Incoming, MqttOptions, QoS};
 
-use ent_core::{Entity, EntityHandle, EntityState, UpdateSource};
-
-use cfg::{MqttBroker, Mqtt};
-use crate::converter::{Topics, mqtt_from_config};
-
-
-
-
+use cfg::MqttBroker;
 
 pub  struct  MqttBridge {
     client: AsyncClient,
     eventloop: rumqttc::EventLoop,
-    topics: Topics,
-    tx: EntityHandle,
 }
 
 impl MqttBridge {
 
-    pub fn new(cfg_broker: &MqttBroker, cfg_topic: &Mqtt, tx: EntityHandle) -> Self {
-        let mut options = MqttOptions::new("entcore", &cfg_broker.host, cfg_broker.port);
+    pub fn new(config: &MqttBroker) -> Self {
+        let mut options = MqttOptions::new("entcore", &config.host, config.port);
         options.set_keep_alive(Duration::from_secs(5));
 
         let (client, eventloop) = AsyncClient::new(options, 50);
 
-        let topics = mqtt_from_config(&cfg_topic);
-
-        
-
-
-
-        Self { client, eventloop, topics, tx }
+        Self { client, eventloop }
     }
 
     pub async fn subscribe(&self, topic: &str) -> Result<(), rumqttc::ClientError> {
@@ -1005,12 +932,7 @@ impl MqttBridge {
             match self.eventloop.poll().await {
                 Ok(Event::Incoming(Incoming::Publish(p))) => {
                     let payload = String::from_utf8_lossy(&p.payload);
-                    if let Some(msg) = self.topics.state_topic.get(&p.topic) {
-                        self.tx.update_fleid(msg.id.clone(), msg.fleid_state.clone(), payload.to_string(), UpdateSource::Mqtt);
-
-                    }
-
-                    // println!("📩 MQTT: topic='{}', payload='{}'", p.topic, payload);
+                    println!("📩 MQTT: topic='{}', payload='{}'", p.topic, payload);
                 }
                 Ok(Event::Incoming(Incoming::ConnAck(_))) => {
                     println!("✅ MQTT: ConnAck подключено к брокеру");
@@ -1035,38 +957,8 @@ impl MqttBridge {
 
 --- ./crates/ent_mqtt/src/converter.rs ---
 
-use std::collections::HashMap;
-use std::println;
-
-use cfg::{Config, Mqtt};
+use cfg::Mqtt;
 use ent_core::{Entity, EntityState};
-use ent_core::state::FleidInfo;
-
-
-// pub struct TopicInfo {
-//     pub id: String,
-//     // pub state: EntityState,
-//     pub fleid_state: String,
-// }
-
-// impl  TopicInfo {
-//     pub fn new(id: String, fleid_state: String) -> Self {
-//         Self { id, fleid_state }
-
-//     }
-    
-// }
- #[derive(Debug)]
-pub struct Topics {
-    pub state_topic: HashMap<String, FleidInfo>, // topic->TopicInfo
-    pub command_topic: HashMap<FleidInfo, String> // TopicInfo->topic
-}
-
-impl Topics {
-    pub fn new() -> Self {
-        Self { state_topic: HashMap::new(), command_topic: HashMap::new() }
-    }
-}
 
 //-> Vec<Entity>
 pub fn mqtt_entities_from_config(mqtt: &Mqtt) -> Vec<Entity> {
@@ -1094,70 +986,18 @@ pub fn mqtt_entities_from_config(mqtt: &Mqtt) -> Vec<Entity> {
 
 }
 
-pub fn mqtt_from_config(mqtt: &Mqtt) -> Topics {
-    let mut topics = Topics::new();
-
-    for item in &mqtt.light {
-        topics.state_topic.insert(item.state_topic.clone(), FleidInfo { id: item.entity_id.clone(), fleid_state: "is_on".to_string() });
-
-        if let Some(b) = &item.brightness_state_topic {
-            topics.state_topic.insert(b.clone(), FleidInfo { id: item.entity_id.clone(), fleid_state: "brightness".to_string() });
-        }
-
-        if let Some(ct) = &item.color_temp_state_topic {
-            topics.state_topic.insert(ct.clone(), FleidInfo { id: item.entity_id.clone(), fleid_state: "color_temp".to_string() });
-        }
-    }
-
-    for item in &mqtt.sensor {
-         topics.state_topic.insert(item.state_topic.clone(), FleidInfo { id: item.entity_id.clone(), fleid_state: "value".to_string() });
-    }
 
 
-    topics
-    
-}
-
-
-
-#[test]
-
-fn test_load_topics() {
-    let config = Config::load_config("../../config.toml")
-        .expect("Не удалось загрузить конфиг");
-
-    let mqtt = config.mqtt;
-
-    let topics = mqtt_from_config(&mqtt);
-
-    println!("{:?}", topics)
-
-    
-
-    
-
-}
-
-
-//  mqtt: Mqtt {
+// mqtt: Mqtt {
 //         light: [
 //             MqttLight {
 //                 entity_id: "light.living_room",
 //                 name: "люстра в зале",
 //                 state_topic: "/devices/wb-mr6cv3_189/controls/K2",
 //                 command_topic: "/devices/wb-mr6cv3_189/controls/K2/on",
-//                 brightness_state_topic: Some(
-//                     "/devices/wb-mr6cv3_189/controls/Brightness",
-//                 ),
-//                 brightness_command_topic: Some(
-//                     "/devices/wb-mr6cv3_189/controls/Brightness/on",
-//                 ),
-//                 brightness_scale: Some(
-//                     254,
-//                 ),
-//                 color_temp_state_topic: None,
-//                 color_temp_command_topic: None,
-//                 color_temp_scale: None,
+//                 brightness_state_topic: "/devices/wb-mr6cv3_189/controls/Brightness",
+//                 brightness_command_topic: "/devices/wb-mr6cv3_189/controls/Brightness/on",
+//                 brightness_scale: 254,
 //             },
 //         ],
 //         sensor: [

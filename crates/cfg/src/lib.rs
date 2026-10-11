@@ -86,11 +86,17 @@ pub struct MqttLight {
     pub name: String,
     pub state_topic: String,
     pub command_topic: String,
+    #[serde(default)]
     pub brightness_state_topic: Option<String>,
+    #[serde(default)]
     pub brightness_command_topic: Option<String>,
+    #[serde(default)]
     pub brightness_scale: Option<u16>,
+    #[serde(default)]
     pub color_temp_state_topic: Option<String>,
+    #[serde(default)]
     pub color_temp_command_topic: Option<String>,
+    #[serde(default)]
     pub color_temp_scale: Option<u16>,
 }
 

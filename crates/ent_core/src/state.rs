@@ -3,7 +3,6 @@
 
 
 
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum EntityState {
     Light {
@@ -17,27 +16,11 @@ pub enum EntityState {
     InputBoolean {is_on: bool},
 }
 
-// pub enum Value {
-//     is_on(bool),
-//     brightness(Option<u8>),
-//     color_temp(Option<u16>),
-//     value_f64(f64),
-//     value_u64(u64),
-// }
-
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct FleidInfo {
-    pub id: String,
-    // pub state: EntityState,
-    pub fleid_state: String,
+pub enum FieldUpdate {
+    IsOn(bool),
+    Brightness(Option<u8>),
+    ColorTemp(Option<u16>),
+    Value(f64),
 }
-
-impl   FleidInfo {
-    pub fn new(id: String, fleid_state: String) -> Self {
-        Self { id, fleid_state }
-
-    }
-    
-}
-
