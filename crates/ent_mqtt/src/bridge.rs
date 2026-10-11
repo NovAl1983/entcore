@@ -1,3 +1,6 @@
+
+
+use std::println;
 use std::time::Duration;
 
 use cfg::Mqtt;
@@ -13,11 +16,14 @@ use ent_core::UpdateSource;
 use ent_core::EntityHandle;
 
 
+
+
 pub  struct  MqttBridge {
     client: AsyncClient,
     eventloop: rumqttc::EventLoop,
     topics: Topics,
     handle: EntityHandle,
+    // subscribe: Vec<String>
 }
 
 impl MqttBridge {
@@ -26,18 +32,17 @@ impl MqttBridge {
         let mut options = MqttOptions::new("entcore", &broker.host, broker.port);
         options.set_keep_alive(Duration::from_secs(5));
 
-        let (client, eventloop) = AsyncClient::new(options, 3);
+        let (client, eventloop) = AsyncClient::new(options, 50);
 
         let topics = mqtt_from_config(mqtt);
+
+        //  let mut subscribe: Vec<String> = Vec::new();
 
         Self { client, eventloop, topics, handle }
     }
 
-    pub async fn subscribe(&self, topic: &str) -> Result<(), rumqttc::ClientError> {
-        self.client.subscribe(topic, QoS::AtLeastOnce).await
-    }
-
     pub async fn run(mut self) {
+        let mut subscribe: Vec<String> = Vec::new();
         loop {
             match self.eventloop.poll().await {
                 Ok(Event::Incoming(Incoming::Publish(p))) => {
@@ -64,19 +69,24 @@ impl MqttBridge {
                 }
                 Ok(Event::Incoming(Incoming::ConnAck(_))) => {
                     println!("✅ MQTT: ConnAck подключено к брокеру");
-                    let topics: Vec<&String> = self.topics.state_topic.keys().collect();
-                    println!("📡 Подписываюсь на {} топиков...", topics.len());
-
-                    for topic in topics {
-                        match self.client.subscribe(topic, QoS::AtLeastOnce).await {
-                            Ok(()) => println!("  📡 {}", topic),
-                            Err(e) => eprintln!("  ⚠️ Ошибка '{}': {}", topic, e),
+                    subscribe.clear();
+                        for topic in self.topics.state_topic.keys() {
+                            let t = topic.to_string();
+                            println!("Топик {} добавлен в вектор", &t);
+                            subscribe.push(t);
                         }
+                    if let Some(x) = subscribe.pop() {
+                        println!("Подписываемся на топик {}", &x);
+                        let _ = self.client.subscribe(x, QoS::AtLeastOnce).await;
                     }
                 }
                 Ok(Event::Incoming(Incoming::SubAck(s))) => {
-                    println!("✅ MQTT: SubAck подтвереждение от броекра {:?}", s );
-                    // let _ = self.client.subscribe("/devices/wb-msw-v4_220/controls/Current Motion", QoS::AtLeastOnce).await;
+                    println!("✅ MQTT: SubAck подтверждение от брокера {:?}", s );
+                    if let Some(x) = subscribe.pop() {
+                                            println!("Подписываемся на топик {}", &x);
+                        let _ = self.client.subscribe(x, QoS::AtLeastOnce).await;
+                    }
+
                 }
                 Ok(_) => {}
                 Err(e) => {
