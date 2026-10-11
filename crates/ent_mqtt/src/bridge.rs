@@ -3,17 +3,24 @@
 use std::println;
 use std::time::Duration;
 
-use cfg::Mqtt;
+// use cfg::Mqtt;
 use rumqttc::{AsyncClient, Event, Incoming, MqttOptions, QoS};
 
-use cfg::MqttBroker;
+use ent_core::{EntityHandle, UpdateSource};
+
+use cfg::{MqttBroker, Mqtt};
+// use crate::converter::{Topics, mqtt_from_config};
+
+
+
+
 
 use crate::converter::{TopicKind, Topics, mqtt_from_config};
 
 use ent_core::FieldUpdate;
 
-use ent_core::UpdateSource;
-use ent_core::EntityHandle;
+// use ent_core::UpdateSource;
+// use ent_core::EntityHandle;
 
 
 
@@ -22,8 +29,8 @@ pub  struct  MqttBridge {
     client: AsyncClient,
     eventloop: rumqttc::EventLoop,
     topics: Topics,
-    handle: EntityHandle,
-    // subscribe: Vec<String>
+    // tx: EntityHandle,
+    handle: EntityHandle
 }
 
 impl MqttBridge {
@@ -36,7 +43,6 @@ impl MqttBridge {
 
         let topics = mqtt_from_config(mqtt);
 
-        //  let mut subscribe: Vec<String> = Vec::new();
 
         Self { client, eventloop, topics, handle }
     }
