@@ -51,8 +51,8 @@ async  fn main() {
         mqtt_bridge.run().await;
     });
 
-    println!("📡 MQTT bridge запущен. Ждём 5 секунд...");
-    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+    println!("📡 MQTT bridge запущен. Ждём 60 секунд...");
+    tokio::time::sleep(std::time::Duration::from_secs(60)).await;
 
 
 

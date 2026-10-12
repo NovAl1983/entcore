@@ -1,0 +1,11 @@
+[package]
+name = "ent_runes"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ent_core = { path = "../ent_core" }
+cfg = { path = "../cfg" }
+rune = "0.14.1"
+rune-macros = "0.14.1"
+rune-modules = { version = "0.14.1", features = ["full"] }

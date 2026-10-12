@@ -186,6 +186,7 @@ MqttBridge — tokio async (не std::thread).
 - Буфер не переполняется.
 - Частичное обновление через FieldUpdate.
 - Топики из Topics (построены из конфига).
+- Reconnect: clear() + перезаполнение в ConnAck.
 
 ### Открытые вопросы
 

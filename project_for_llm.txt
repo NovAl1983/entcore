@@ -1,5 +1,5 @@
 === Rust Rules Project ===
-=== Ветка: feature/update_state ===
+=== Ветка: master ===
 
 === СТРУКТУРА ПРОЕКТА ===
 ├── ./
@@ -19,197 +19,7 @@
 
 === СОДЕРЖИМОЕ ФАЙЛОВ ===
 
---- ./architecture.md ---
-# entcore - архитектурные решения
 
-## Версия 1 (2026-09-28)
-📌 Договорённости (v1)
-Архитектура
-Парадигма «Всё есть сущности» (HA-style).
-
-Entity — типизированный объект: id, friendly_name, state.
-
-EntityState — enum: BinarySensor, Sensor, Light, InputBoolean.
-
-Домены фиксированы: light, sensor, binary_sensor, input_boolean.
-
-entity_id формат: <domain>.<object_id>, например light.living_room.
-
-EntityManager — актор в отдельном std::thread.
-
-Владеет HashMap<String, Entity>.
-
-Общается через каналы (mpsc + oneshot).
-
-Никаких RwLock/Mutex на базе.
-
-Синхронный цикл blocking_recv.
-
-Сущности создаются в модулях своих протоколов (Вариант A).
-
-ent_mqtt: читает config.mqtt, создаёт Entity, регистрирует.
-
-ent_modbus: читает свою секцию, создаёт Entity, регистрирует.
-
-ent_helper: создаёт виртуальные сущности.
-
-ent_core не знает про Config.
-
-EntityManager принимает готовые Entity.
-
-Порядок регистрации — в main (ent_ctl), детерминированный.
-
-text
-let mqtt_entities   = mqtt::register(&config.mqtt, &handle)?;
-let http_entities   = http::register(&config.http, &handle)?;
-let helper_entities = helper::register(&config.helper, &handle)?;
-Модули — отдельные крейты.
-
-ent_core — ядро (без I/O, без serde).
-
-cfg — парсинг TOML.
-
-ent_ctl — main + запуск.
-
-ent_mqtt, ent_runes, ent_timer, ent_modbus — позже.
-
-Модель данных
-EntityState — минимальная, без Switch, Counter, Event.
-
-rust
-pub enum EntityState {
-    BinarySensor { is_on: bool },
-    Sensor { value: f64 },
-    Light {
-        is_on: bool,
-        brightness: Option<u8>,
-        color_temp: Option<u16>,
-    },
-    InputBoolean { is_on: bool },
-}
-Switch, Counter, Event — позже, когда понадобятся.
-
-Счётчики нажатий WB — позже (модель не решена).
-
-Serde — только на границе (cfg).
-
-EntityState — без serde.
-
-MqttLight, MqttSensor — с serde.
-
-PartialEq на EntityState и Entity — для дедупликации в EntityManager.
-
-Конфиг
-Option — только когда «отсутствие» семантически важно.
-
-Integrations.mqtt: Option<MqttBroker> — да.
-
-Mqtt.light: Vec<MqttLight> + #[serde(default)] — да.
-
-Option<Vec<T>> — никогда.
-
-EntityState не конвертируется из TOML напрямую.
-
-TOML → MqttLight (serde).
-
-MqttLight → Entity (код в ent_mqtt).
-
-Валидация
-Валидация — TODO. Позже решим:
-
-Уровень 1 (cfg): синтаксис, формат entity_id, уникальность. Без знания модели.
-
-Уровень 2 (ent_core): семантика — домен ↔ EntityState.
-
-Уровень 3 (отдельный модуль): сквозная проверка.
-
-Возможный вариант: cfg собирает все entity_id в мапу и проверяет уникальность.
-
-Решение отложено.
-
-Рантайм
-Перезапуск движка — ручной (systemctl restart). Без hot-reload.
-
-При ошибке конфига — паника/exit(1), не откат. Лучше упасть громко.
-
-Скрипты — stateless. Vm создаётся на событие, уничтожается. main() — чистая, только возвращает правила. Логика — в then-функциях.
-
-Вызов скриптов — по func_hash, не весь скрипт.
-
-Потоки (MVP):
-
-EntityManager — 1 std::thread.
-
-ScriptRunner — 1 std::thread (позже — пул).
-
-Timer — 1 std::thread.
-
-MqttBridge — tokio async (не std::thread).
-
-## Правило: минимум tokio
-
-- `ent_core`: `tokio = { features = ["sync"] }` — только mpsc/oneshot.
-- `ent_mqtt`, `ent_ctl`: полный tokio (rt, net, macros).
-- `ent_runes`, `ent_timer`, `ent_modbus`: только `std` + `tokio::sync` при необходимости.
-- По умолчанию — `std`. Tokio — исключение.
-
-## Идея: mqtt-bridge как отдельный микросервис (v3+)
-
-Проблема:
-- entcore с rumqttc внутри перезапускается → теряет connection.
-- sleep(N) при старте — костыль.
-- Retained перезагружаются каждый раз.
-
-Идея:
-- Отдельный бинарник mqtt-bridge.
-- Держит connection с брокером всегда.
-- Общается с entcore через IPC (Unix socket?).
-- При старте entcore — сразу шлёт snapshot.
-
-Плюсы:
-- Нет sleep при старте.
-- Быстрый перезапуск entcore.
-- Разделение MQTT и ядра.
-- mqtt-bridge — маленький и простой.
-
-Минусы:
-- IPC — сложность.
-- Управление процессами.
-- Отладка двух процессов.
-- Схема сообщений.
-
-Решение: отложено до v3. Сначала — монолит с ent_mqtt внутри.
-
-## Микросервисы (v3+)
-
-Идеи:
-- mqtt-bridge: отдельный сервис, держит connection всегда.
-- web-bridge: WebUI.
-- logger-bridge: централизованные логи.
-
-Проблемы, которые решают:
-- Перезапуск entcore без потери MQTT.
-- Централизованный UI.
-- Один поток логов.
-
-Почему отложено:
-- MVP — монолит.
-- Микросервисы — преждевременная оптимизация.
-- Сложность: IPC, управление процессами, отладка.
-
-Когда пересмотреть:
-- Когда entcore станет >5000 строк.
-- Когда понадобится live-WebUI.
-- Когда перезапуск entcore станет болезненным.
---- ./Cargo.toml ---
-[workspace]
-members = [
-    "crates/ent_core",
-    "crates/cfg",
-    "crates/ent_ctl",
-    "crates/ent_mqtt"]
-
-resolver = "2"
 
 --- ./config.toml ---
 # =====================================================================
@@ -252,7 +62,7 @@ command_topic = "/devices/wb-mr6cv3_200/controls/K2/on"
 brightness_state_topic = "/devices/wb-mr6cv3_200/controls/Brightness"
 brightness_command_topic = "/devices/wb-mr6cv3_200/controls/Brightness/on"
 brightness_scale = 254
-color_temp_state_topic = "/devices/wb-mr6cv3_200/controls/Brightness"
+color_temp_state_topic = "/devices/wb-mr6cv3_200/controls/ColorTemp"
 color_temp_command_topic = "/devices/wb-mr6cv3_200/controls/Brightness/on"
 color_temp_scale = 254
 
@@ -410,9 +220,18 @@ pub struct MqttLight {
     pub name: String,
     pub state_topic: String,
     pub command_topic: String,
-    pub brightness_state_topic: String,
-    pub brightness_command_topic: String,
-    pub brightness_scale: u16,
+    #[serde(default)]
+    pub brightness_state_topic: Option<String>,
+    #[serde(default)]
+    pub brightness_command_topic: Option<String>,
+    #[serde(default)]
+    pub brightness_scale: Option<u16>,
+    #[serde(default)]
+    pub color_temp_state_topic: Option<String>,
+    #[serde(default)]
+    pub color_temp_command_topic: Option<String>,
+    #[serde(default)]
+    pub color_temp_scale: Option<u16>,
 }
 
 #[derive(Debug, Deserialize, Clone, Default)]
@@ -520,7 +339,7 @@ use tokio::sync::oneshot;
 
 use crate::message::{EntityMessage, UpdateSource};
 use crate::entity::Entity;
-use crate::state::EntityState;
+use crate::state::{EntityState, FieldUpdate};
 
 /// Пульт управления EntityManager.
 /// Клонируется, раздаётся модулям.
@@ -554,6 +373,20 @@ let _ = self.tx.send(EntityMessage::Register(entity));
                 source 
             });
      }
+/// Обновить состояние конкретного поля сущности
+     pub fn update_field(
+    &self,
+    entity_id: impl Into<String>,
+    field: FieldUpdate,
+    source: UpdateSource,
+) {
+    let _ = self.tx.send(EntityMessage::UpdateStateField {
+        entity_id: entity_id.into(),
+        field,
+        source,
+    });
+}
+
   // блокирующий метод для сихронного кода  
   pub fn get_state_blocking(&self, entity_id: &str) -> Option<Entity> {
         let (tx, rx) = oneshot::channel();
@@ -591,7 +424,7 @@ pub mod message;
 pub mod handle;
 pub mod manager;
 
-pub use state::EntityState;
+pub use state::{EntityState, FieldUpdate};
 pub use entity::Entity;
 pub use message::{EntityMessage, UpdateSource};
 pub use handle::EntityHandle;
@@ -610,6 +443,7 @@ use tokio::sync::mpsc;
 use crate::entity::Entity;
 use crate::handle::EntityHandle;
 use crate::message::EntityMessage;
+use  crate::state::{EntityState, FieldUpdate};
 
 pub struct EntityManager {
     rx: mpsc::UnboundedReceiver<EntityMessage>,
@@ -659,6 +493,43 @@ impl EntityManager {
                         eprintln!("⚠️ UpdateState: неизвестная '{}'", entity_id);
                     }
                 },
+                EntityMessage::UpdateStateField { entity_id, field, source } => {
+    if let Some(entity) = self.entities.get_mut(&entity_id) {
+        match (&mut entity.state, field) {
+            (EntityState::Light { is_on, .. }, FieldUpdate::IsOn(v)) => {
+                if *is_on == v { continue; }
+                *is_on = v;
+            }
+            (EntityState::Light { brightness, .. }, FieldUpdate::Brightness(v)) => {
+                if *brightness == v { continue; }
+                *brightness = v;
+            }
+            (EntityState::Light { color_temp, .. }, FieldUpdate::ColorTemp(v)) => {
+                if *color_temp == v { continue; }
+                *color_temp = v;
+            }
+            (EntityState::Sensor { value }, FieldUpdate::Value(v)) => {
+                if *value == v { continue; }
+                *value = v;
+            }
+            (EntityState::BinarySensor { is_on }, FieldUpdate::IsOn(v)) => {
+                if *is_on == v { continue; }
+                *is_on = v;
+            }
+            (EntityState::InputBoolean { is_on }, FieldUpdate::IsOn(v)) => {
+                if *is_on == v { continue; }
+                *is_on = v;
+            }
+            _ => {
+                eprintln!("⚠️ Несовместимое поле для '{}'", entity_id);
+                continue;
+            }
+        }
+        println!("🔄 '{}' обновлена (field, source: {:?})", entity_id, source);
+    } else {
+        eprintln!("⚠️ UpdateStateField: неизвестная '{}'", entity_id);
+    }
+}
                 EntityMessage::GetState { entity_id, reply } => {
                         let entity = self.entities.get(&entity_id).cloned();
                         let _ = reply.send(entity);
@@ -684,7 +555,7 @@ impl EntityManager {
 
 --- ./crates/ent_core/src/message.rs ---
 use crate::entity::Entity;
-use crate::state::EntityState;
+use crate::state::{EntityState, FieldUpdate};
 use tokio::sync::oneshot;
 
 /// Сообщения, которые модули шлют в EntityManager.
@@ -699,6 +570,12 @@ pub enum EntityMessage {
         new_state: EntityState,
         source: UpdateSource,
     },
+
+    UpdateStateField {
+    entity_id: String,
+    field: FieldUpdate,
+    source: UpdateSource,
+},
 
     /// Прочитать сущность по id. Ответ — через oneshot.
     GetState {
@@ -745,7 +622,13 @@ pub enum EntityState {
 }
 
 
-
+#[derive(Debug, Clone, PartialEq)]
+pub enum FieldUpdate {
+    IsOn(bool),
+    Brightness(Option<u8>),
+    ColorTemp(Option<u16>),
+    Value(f64),
+}
 
 --- ./crates/ent_core/tests/manager_test.rs ---
 use ent_core::{Entity, EntityHandle, EntityManager, EntityState, UpdateSource};
@@ -833,7 +716,7 @@ async  fn main() {
      let integrations = &config.integrations;
      let mqtt_config = integrations.mqtt.as_ref().expect("Секция [integrations.mqtt] обязательна");
 
-     let mqtt_bridge = MqttBridge::new(mqtt_config);
+     let mqtt_bridge = MqttBridge::new(mqtt_config, &config.mqtt, handle.clone());
      println!("✅ MqttBridge создан");
 
     //подписка на топики выполняется  в методе bridge.run()!!!!
@@ -846,8 +729,8 @@ async  fn main() {
         mqtt_bridge.run().await;
     });
 
-    println!("📡 MQTT bridge запущен. Ждём 30 секунд...");
-    tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+    println!("📡 MQTT bridge запущен. Ждём 60 секунд...");
+    tokio::time::sleep(std::time::Duration::from_secs(60)).await;
 
 
 
@@ -901,46 +784,101 @@ async fn main() {
     tokio::time::sleep(Duration::from_millis(500)).await;
 }
 --- ./crates/ent_mqtt/src/bridge.rs ---
+
+
+use std::println;
 use std::time::Duration;
 
+// use cfg::Mqtt;
 use rumqttc::{AsyncClient, Event, Incoming, MqttOptions, QoS};
 
-use cfg::MqttBroker;
+use ent_core::{EntityHandle, UpdateSource};
+
+use cfg::{MqttBroker, Mqtt};
+// use crate::converter::{Topics, mqtt_from_config};
+
+
+
+
+
+use crate::converter::{TopicKind, Topics, mqtt_from_config};
+
+use ent_core::FieldUpdate;
+
+// use ent_core::UpdateSource;
+// use ent_core::EntityHandle;
+
+
+
 
 pub  struct  MqttBridge {
     client: AsyncClient,
     eventloop: rumqttc::EventLoop,
+    topics: Topics,
+    // tx: EntityHandle,
+    handle: EntityHandle
 }
 
 impl MqttBridge {
 
-    pub fn new(config: &MqttBroker) -> Self {
-        let mut options = MqttOptions::new("entcore", &config.host, config.port);
+    pub fn new(broker: &MqttBroker, mqtt: &Mqtt, handle: EntityHandle) -> Self {
+        let mut options = MqttOptions::new("entcore", &broker.host, broker.port);
         options.set_keep_alive(Duration::from_secs(5));
 
         let (client, eventloop) = AsyncClient::new(options, 50);
 
-        Self { client, eventloop }
-    }
+        let topics = mqtt_from_config(mqtt);
 
-    pub async fn subscribe(&self, topic: &str) -> Result<(), rumqttc::ClientError> {
-        self.client.subscribe(topic, QoS::AtLeastOnce).await
+
+        Self { client, eventloop, topics, handle }
     }
 
     pub async fn run(mut self) {
+        let mut subscribe: Vec<String> = Vec::new();
         loop {
             match self.eventloop.poll().await {
                 Ok(Event::Incoming(Incoming::Publish(p))) => {
                     let payload = String::from_utf8_lossy(&p.payload);
-                    println!("📩 MQTT: topic='{}', payload='{}'", p.topic, payload);
+                    if let Some(mapping) = self.topics.state_topic.get(&p.topic) {
+                        let field = match mapping.kind {
+            TopicKind::LightIsOn => {
+                let v = payload == "1" || payload == "true" || payload == "ON";
+                FieldUpdate::IsOn(v)
+            }
+            TopicKind::LightBrightness => {
+                FieldUpdate::Brightness(payload.parse().ok())
+            }
+            TopicKind::LightColorTemp => {
+                FieldUpdate::ColorTemp(payload.parse().ok())
+            }
+            TopicKind::SensorValue => {
+                FieldUpdate::Value(payload.parse().unwrap_or(0.0))
+            }
+        };
+        self.handle.update_field(mapping.entity_id.clone(), field, UpdateSource::Mqtt);
+    }
+
                 }
                 Ok(Event::Incoming(Incoming::ConnAck(_))) => {
                     println!("✅ MQTT: ConnAck подключено к брокеру");
-                    let _ = self.client.subscribe("/devices/wb-msw-v4_220/controls/Current Motion", QoS::AtLeastOnce).await;
+                    subscribe.clear();
+                        for topic in self.topics.state_topic.keys() {
+                            let t = topic.to_string();
+                            println!("Топик {} добавлен в вектор", &t);
+                            subscribe.push(t);
+                        }
+                    if let Some(x) = subscribe.pop() {
+                        println!("Подписываемся на топик {}", &x);
+                        let _ = self.client.subscribe(x, QoS::AtLeastOnce).await;
+                    }
                 }
                 Ok(Event::Incoming(Incoming::SubAck(s))) => {
-                    println!("✅ MQTT: SubAck подтвереждение от броекра {:?}", s );
-                    // let _ = self.client.subscribe("/devices/wb-msw-v4_220/controls/Current Motion", QoS::AtLeastOnce).await;
+                    println!("✅ MQTT: SubAck подтверждение от брокера {:?}", s );
+                    if let Some(x) = subscribe.pop() {
+                                            println!("Подписываемся на топик {}", &x);
+                        let _ = self.client.subscribe(x, QoS::AtLeastOnce).await;
+                    }
+
                 }
                 Ok(_) => {}
                 Err(e) => {
@@ -959,6 +897,25 @@ impl MqttBridge {
 
 use cfg::Mqtt;
 use ent_core::{Entity, EntityState};
+use std::collections::HashMap;
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum TopicKind {
+    LightIsOn,
+    LightBrightness,
+    LightColorTemp,
+    SensorValue,
+}
+
+#[derive(Debug, Clone)]
+pub struct FieldMapping {
+    pub entity_id: String,
+    pub kind: TopicKind,
+}
+pub struct Topics {
+    pub state_topic: HashMap<String, FieldMapping>,   // topic → mapping
+}
+
 
 //-> Vec<Entity>
 pub fn mqtt_entities_from_config(mqtt: &Mqtt) -> Vec<Entity> {
@@ -985,6 +942,51 @@ pub fn mqtt_entities_from_config(mqtt: &Mqtt) -> Vec<Entity> {
     entities
 
 }
+
+pub fn mqtt_from_config(mqtt: &Mqtt) -> Topics {
+    let mut topics = Topics { state_topic: HashMap::new() };
+
+    for light in &mqtt.light {
+        topics.state_topic.insert(
+            light.state_topic.clone(),
+            FieldMapping {
+                entity_id: light.entity_id.clone(),
+                kind: TopicKind::LightIsOn,
+            },
+        );
+        if let Some(topic) = &light.brightness_state_topic {
+            topics.state_topic.insert(
+                topic.clone(),
+                FieldMapping {
+                    entity_id: light.entity_id.clone(),
+                    kind: TopicKind::LightBrightness,
+                },
+            );
+        }
+        if let Some(topic) = &light.color_temp_state_topic {
+            topics.state_topic.insert(
+                topic.clone(),
+                FieldMapping {
+                    entity_id: light.entity_id.clone(),
+                    kind: TopicKind::LightColorTemp,
+                },
+            );
+        }
+    }
+
+    for sensor in &mqtt.sensor {
+        topics.state_topic.insert(
+            sensor.state_topic.clone(),
+            FieldMapping {
+                entity_id: sensor.entity_id.clone(),
+                kind: TopicKind::SensorValue,
+            },
+        );
+    }
+
+    topics
+}
+
 
 
 
@@ -1017,7 +1019,6 @@ pub fn mqtt_entities_from_config(mqtt: &Mqtt) -> Vec<Entity> {
 pub mod converter;
 pub mod bridge;
 
-use std::collections::HashMap;
 
 pub use converter::mqtt_entities_from_config;
 pub use bridge::MqttBridge;
