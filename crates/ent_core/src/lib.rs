@@ -4,7 +4,7 @@ pub mod message;
 pub mod handle;
 pub mod manager;
 
-pub use state::{EntityState, FieldUpdate};
+pub use state::{EntityState, FieldUpdate, LightState, SensorState};
 pub use entity::Entity;
 pub use message::{EntityMessage, UpdateSource};
 pub use handle::EntityHandle;

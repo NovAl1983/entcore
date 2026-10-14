@@ -24,8 +24,9 @@ async  fn main() {
         handle.register(entity);
     }
 
-    // 4. HACK: Пауза — дать менеджеру обработать (пока костыль), лучше ждать все подписки или таймаут если не все ответят!!!
-    std::thread::sleep(std::time::Duration::from_millis(50));
+     println!("⏳ Ожидание обработки регистраций в EntityManager...");
+    handle.wait_ready().await.expect("Не удалось дождаться инициализации EntityManager");
+    println!("✅ EntityManager полностью инициализирован!");
 
     // 5. Проверяем: читаем одну сущность
     if let Some(entity) = handle.get_state("light.living_room").await {

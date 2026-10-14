@@ -73,6 +73,20 @@ let _ = self.tx.send(EntityMessage::Register(entity));
         }).ok()?;
         rx.await.ok()?
     }
+
+     /// Подождать, пока менеджер обработает все текущие сообщения в очереди.
+    /// Этот метод асинхронный, его можно вызывать в async-контексте через .await
+    pub async fn wait_ready(&self) -> Result<(), String> {
+        let (tx, rx) = oneshot::channel();
+        
+        // Отправляем сообщение в очередь менеджера
+        if self.tx.send(EntityMessage::WaitReady { reply: tx }).is_err() {
+            return Err("EntityManager уже остановлен".to_string());
+        }
+        
+        // Ждем, пока менеджер обработает все сообщения перед нами и ответит в rx
+        rx.await.map_err(|_| "Поток EntityManager аварийно завершился".to_string())
+    }
     
   //  /// Прочитать сущность (async).
     // pub async fn get_state(&self, entity_id: &str) -> Option<Entity> { ... }

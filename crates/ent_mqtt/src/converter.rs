@@ -1,6 +1,6 @@
 
 use cfg::Mqtt;
-use ent_core::{Entity, EntityState};
+use ent_core::{Entity, EntityState, LightState, SensorState};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -29,7 +29,11 @@ pub fn mqtt_entities_from_config(mqtt: &Mqtt) -> Vec<Entity> {
         let entity = Entity {
             id: item.entity_id.clone(),
             friendly_name: item.name.clone(),
-            state: EntityState::Light { is_on: false, brightness: None, color_temp: None }
+            state: EntityState::Light(LightState { 
+                is_on: false, 
+                brightness: None, 
+                color_temp: None 
+            })
         };
         entities.push(entity); 
     }
@@ -38,7 +42,9 @@ pub fn mqtt_entities_from_config(mqtt: &Mqtt) -> Vec<Entity> {
         let entity = Entity {
             id: item.entity_id.clone(),
             friendly_name: item.name.clone(),
-            state: EntityState::Sensor { value: 0.0 }
+            state: EntityState::Sensor(SensorState{
+                value: 0.0
+            })
         };
         entities.push(entity); 
     }
