@@ -44,6 +44,11 @@ impl EntityManager {
                     println!("Сущность с  id = {} добавленна в entities", id);
                    
                 },
+                EntityMessage::WaitReady { reply } => {
+                    println!("📥 EntityManager: получен запрос WaitReady, подтверждаем готовность...");
+                    // Отправляем сигнал обратно. Если вызывающий поток уже умер, игнорируем ошибку (.ok())
+                    let _ = reply.send(());
+                },
                 EntityMessage::UpdateState {entity_id, new_state, source } => {
                     if let Some(entity) = self.entities.get_mut(&entity_id) {
                         if entity.state == new_state {
@@ -59,29 +64,29 @@ impl EntityManager {
                 EntityMessage::UpdateStateField { entity_id, field, source } => {
     if let Some(entity) = self.entities.get_mut(&entity_id) {
         match (&mut entity.state, field) {
-            (EntityState::Light { is_on, .. }, FieldUpdate::IsOn(v)) => {
-                if *is_on == v { continue; }
-                *is_on = v;
+            (EntityState::Light(light), FieldUpdate::IsOn(v)) => {
+                if light.is_on == v { continue; }
+                light.is_on = v;
             }
-            (EntityState::Light { brightness, .. }, FieldUpdate::Brightness(v)) => {
-                if *brightness == v { continue; }
-                *brightness = v;
+            (EntityState::Light(light), FieldUpdate::Brightness(v)) => {
+                if light.brightness == v { continue; }
+                light.brightness = v;
             }
-            (EntityState::Light { color_temp, .. }, FieldUpdate::ColorTemp(v)) => {
-                if *color_temp == v { continue; }
-                *color_temp = v;
+            (EntityState::Light(light), FieldUpdate::ColorTemp(v)) => {
+                if light.color_temp == v { continue; }
+                light.color_temp = v;
             }
-            (EntityState::Sensor { value }, FieldUpdate::Value(v)) => {
-                if *value == v { continue; }
-                *value = v;
+            (EntityState::Sensor(sensor), FieldUpdate::Value(v)) => {
+                if sensor.value == v { continue; }
+                sensor.value = v;
             }
-            (EntityState::BinarySensor { is_on }, FieldUpdate::IsOn(v)) => {
-                if *is_on == v { continue; }
-                *is_on = v;
+            (EntityState::BinarySensor(binary), FieldUpdate::IsOn(v)) => {
+                if binary.is_on == v { continue; }
+                binary.is_on = v;
             }
-            (EntityState::InputBoolean { is_on }, FieldUpdate::IsOn(v)) => {
-                if *is_on == v { continue; }
-                *is_on = v;
+            (EntityState::InputBoolean(input_bool), FieldUpdate::IsOn(v)) => {
+                if input_bool.is_on == v { continue; }
+                input_bool.is_on = v;
             }
             _ => {
                 eprintln!("⚠️ Несовместимое поле для '{}'", entity_id);
