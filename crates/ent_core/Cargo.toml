@@ -5,3 +5,5 @@ edition = "2024"
 
 [dependencies]
 tokio = { version = "1", features = ["sync"] }
+rune = "0.14.2"
+rune-macros = "0.14.2"

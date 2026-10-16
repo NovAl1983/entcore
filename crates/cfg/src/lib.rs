@@ -147,7 +147,7 @@ fn test_load_full_config() {
     assert_eq!(modbus.port, "/dev/ttyRS485-1");
     
     // Сущности
-    assert_eq!(config.mqtt.light.len(), 1);
+    assert_eq!(config.mqtt.light.len(), 2);
     assert_eq!(config.mqtt.light[0].entity_id, "light.living_room");
     assert_eq!(config.mqtt.sensor.len(), 2);
     assert_eq!(config.http.len(), 1);

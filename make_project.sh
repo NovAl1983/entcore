@@ -2,8 +2,10 @@
 
 OUTPUT="project_for_llm.txt"
 BRANCH=$(git branch --show-current)
+DATE=$(date '+%Y-%m-%d %H:%M:%S')
 
-echo "=== Rust Rules Project ===" > "$OUTPUT"
+echo "=== Дата: $DATE ===" > "$OUTPUT"
+echo "=== ENTCORE Project ===" >> "$OUTPUT"
 echo "=== Ветка: $BRANCH ===" >> "$OUTPUT"
 echo "" >> "$OUTPUT"
 
@@ -20,6 +22,7 @@ find . -type f \( -name "*.rs" -o -name "*.toml" -o -name "*.md" \) \
   -not -path "./target/*" \
   -not -path "./.git/*" \
   -not -name "Cargo.lock" \
+  -not -name "architecture.md" \
   | sort | while read file; do
     echo "" >> "$OUTPUT"
     echo "--- $file ---" >> "$OUTPUT"

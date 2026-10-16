@@ -38,7 +38,7 @@ use crate::state::{EntityState, LightState,};
         // });
         assert_eq!(e.state, EntityState::Light(LightState {
             is_on: false,
-            brightness: Some(128),
+            brightness: None ,
             color_temp: None,
         })
     );
