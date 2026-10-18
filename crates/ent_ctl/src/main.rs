@@ -2,7 +2,7 @@ use std::println;
 
 use cfg::Config;
 use ent_core::EntityManager;
-use ent_mqtt::{mqtt_entities_from_config, MqttBridge};
+use ent_mqtt::{mqtt_entities_from_config, MqttBridge}; 
 
 
 #[tokio::main]

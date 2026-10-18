@@ -1,25 +1,32 @@
-use std::collections::HashMap;
 use std::fs;
 use std::io;
-use std::println;
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
+use cfg::Config;
 
 //let script_source =  //исходный код скрипта (строка)
 
-fn main()-> Result<(), Box<dyn std::error::Error>> {
+fn main()->Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("Hello!!!");
-    let mut scripts: HashMap<String, Script> = HashMap::new();
-    let dir = PathBuf::from_str(r"D:\Rust\projects\entcore\rune_scripts");
-    let script_paths = collect_rn_files(dir?)?;
+    // let mut scripts: HashMap<String, Script> = HashMap::new();
+    let mut scripts: Vec<Script> = Vec::new();
+
+    let dir: PathBuf = { 
+    let cfg: Config = Config::load_config("config.toml")?;
+    PathBuf::from(&cfg.system.scripts_directory)
+    };
+
+    let script_paths: Vec<PathBuf> = collect_rn_files(dir)?;
     for script in script_paths {
         let name: String = script.file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
-        let path = script.to_string_lossy().into_owned();
-        let file = fs::File::open(path)?;
-        let source: Result<String, io::Error> = io::read_to_string(file);
-        scripts.insert(name.clone(), Script { name: name.clone(), path: script, source_code: source });
+         let source= fs::read_to_string(&script)?;
+        // scripts.insert(name.clone(), Script { name: name.clone(), path: script, source_code: source });
+        scripts.push(Script { 
+            name: name, 
+            path: script, 
+            source_code: source 
+        });
     }
 
     println!("{:?}", scripts);
@@ -43,15 +50,16 @@ fn collect_rn_files(dir: impl AsRef<Path>) -> io::Result<Vec<PathBuf>> {
 }
 
 
+
 #[derive(Debug)]
 pub struct Script {
     pub name: String,
     pub path: PathBuf,
-    pub source_code: Result<String, io::Error>
+    pub source_code: String
 }
 
 impl Script {
-    pub fn new(name: String, path: PathBuf, source_code: Result<String, io::Error> ) -> Self {
+    pub fn new(name: String, path: PathBuf, source_code: String  ) -> Self {
         Self { name, path, source_code }
     }
 }
