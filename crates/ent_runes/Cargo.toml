@@ -7,6 +7,7 @@ edition = "2024"
 ent_core = { path = "../ent_core" }
 rune = "0.14.2"
 rune-macros = "0.14.2"
+tokio = { version = "1", features = ["sync"] } 
 
 [dev-dependencies]
 cfg = { path = "../cfg" }

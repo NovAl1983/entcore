@@ -141,6 +141,7 @@ dependencies = [
  "ent_core",
  "rune",
  "rune-macros",
+ "tokio",
 ]
 
 [[package]]

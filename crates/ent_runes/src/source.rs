@@ -18,9 +18,9 @@ pub fn  load_scripts(dir: impl AsRef<Path>) -> io::Result<Vec<Script>> {
     let script_paths: Vec<PathBuf> = collect_rn_files(dir)?;
 
     for script in script_paths {
-        let name: String = script.file_name()
+        let name: String = script.file_stem()
             .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default();
+            .unwrap_or_else(|| script.to_string_lossy().into_owned());
          let source= fs::read_to_string(&script)?;
         scripts.push(Script { 
             name: name, 
