@@ -1,8 +1,6 @@
 use rune_macros::Any;
 use rune::alloc::clone::TryClone;
 
-/// Перечисление для внутренней логики Rust.
-/// Добавляем TryClone и Copy, чтобы структура Trigger могла беспрепятственно клонироваться.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, TryClone)]
 pub enum TriggerKind {
     Entity,
@@ -10,7 +8,6 @@ pub enum TriggerKind {
     Custom,
 }
 
-/// Чистая структура, которая идеально пробрасывается в Rune
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Any, TryClone)]
 pub struct Trigger {
     pub kind: TriggerKind,
@@ -18,15 +15,16 @@ pub struct Trigger {
 }
 
 impl Trigger {
-    pub fn entity(id: String) -> Self {
+    // Переименовали методы в snake_case, чтобы макрос Any не сходил с ума
+    pub fn new_entity(id: String) -> Self {
         Self { kind: TriggerKind::Entity, id }
     }
 
-    pub fn timer(name: String) -> Self {
+    pub fn new_timer(name: String) -> Self {
         Self { kind: TriggerKind::Timer, id: name }
     }
 
-    pub fn custom(name: String) -> Self {
+    pub fn new_custom(name: String) -> Self {
         Self { kind: TriggerKind::Custom, id: name }
     }
 }
@@ -48,4 +46,10 @@ impl AutomationEvent {
 pub struct Rule {
     pub when: Vec<Trigger>,
     pub then: rune::runtime::Function,
+}
+
+
+/// Фабричная функция для создания правила автоматизации внутри Rune
+pub fn create_rule(when: Vec<Trigger>, then: rune::runtime::Function) -> Rule {
+    Rule { when, then }
 }

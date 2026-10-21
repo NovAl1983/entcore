@@ -1,0 +1,11 @@
+// D:\Rust\projects\entcore\rune_scripts\kitchen.rn
+
+pub fn init() {
+    return automation::create_rule(
+        [automation::entity_trigger("light.kitchen")],
+
+        |event| {
+            println!("Свет на кухне изменился!");
+        }
+    );
+}

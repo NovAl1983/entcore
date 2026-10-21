@@ -117,11 +117,9 @@ impl ScriptRunner {
                     // Вытаскиваем числовое значение для контекста AutomationEvent (задел)
                     let current_value = 1.0; 
 
-                    // Проверяем наши правила на совпадение триггеров (Матчинг структур)
+                    // Проверяем наши правила на совпадение триггеров
                     for rule in &self.rules {
                         for trigger in &rule.when {
-                            // ИСПРАВЛЕНО: Trigger теперь структура. 
-                            // Сверяем тип триггера (Entity) и совпадение по ID устройства
                             if trigger.kind == TriggerKind::Entity && trigger.id == entity_id {
                                 println!("⚡ [ScriptRunner] Триггер совпал для '{}'! Запуск автоматизации...", entity_id);
                                 
@@ -132,14 +130,16 @@ impl ScriptRunner {
                                     value: current_value,
                                 };
 
-                                // Вызываем Rune-замыкание напрямую, передавая одиночный кортеж (event,)
+                                // Вызываем через .call::<()>((event,)), превращая VmResult в обычный Result с помощью .into_result()
                                 if let Err(e) = rule.then.call::<()>((event,)).into_result() {
                                     eprintln!("❌ [ScriptRunner] Ошибка выполнения автоматизации: {}", e);
                                 }
+
                             }
                         }
                     }
                 }
+
                 ScriptRunnerMessage::Shutdown => {
                     println!("🏁 [ScriptRunner] Получен сигнал Shutdown. Останов потока скриптов.");
                     break;
