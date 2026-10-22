@@ -2,7 +2,7 @@
 # НАСТРОЙКИ СИСТЕМЫ И ИНТЕГРАЦИЙ
 # =====================================================================
 [system]
-scripts_directory = "D:\\Rust\\projects\\rust_rules\\rune_scripts"
+scripts_directory = "D://Rust//projects//entcore//scripts"
 
 [integrations.mqtt]
 host = "localhost"

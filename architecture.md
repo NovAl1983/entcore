@@ -193,3 +193,18 @@ MqttBridge — tokio async (не std::thread).
         - создаем вектор топиков subscribe для подписки при сообщении ConnAck от mqtt брокера!!!
 - [ ] Порядок подписок — обратный (не критично).
 - [ ] Публикация команд — не реализована.
+
+## Интеграция Lua
+
+### Принятые решения
+- `mlua 0.12` с `vendored` — Lua собирается с проектом, не зависит от системы.
+- `send` **не** включаем — ScriptRunner в одном `std::thread`, `Send` не нужен.
+- «Умный прогон»: скрипт возвращает **одну функцию-диспетчер**, Rust вызывает её на каждое событие.
+- `UserData` через `#[derive(UserData)]` — поля структуры видны из Lua.
+- `register_log()` — конкретный метод, не generic.
+
+### Открытые вопросы (на будущее)
+- [ ] **Ручной `impl UserData`** — для обучения, не срочно. Derive достаточно для `AutomationEvent`.
+- [ ] **`register_function<F>`** — когда функций станет 5+. Сейчас `register_log`, `register_get_state`, `register_set_state` — конкретные методы.
+- [ ] **`get_state` / `set_state` из Lua** — требуют `EntityHandle` в `ScriptEngine`. Шаг 5.
+- [ ] **Подписки в `EntityManager`** — `Subscribe` + `Notification`. Шаг 4.
