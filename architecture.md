@@ -208,3 +208,9 @@ MqttBridge — tokio async (не std::thread).
 - [ ] **`register_function<F>`** — когда функций станет 5+. Сейчас `register_log`, `register_get_state`, `register_set_state` — конкретные методы.
 - [ ] **`get_state` / `set_state` из Lua** — требуют `EntityHandle` в `ScriptEngine`. Шаг 5.
 - [ ] **Подписки в `EntityManager`** — `Subscribe` + `Notification`. Шаг 4.
+- [ ] **Виртуальные сущности (Шаг 7+).** Идея: скрипт создаёт сущность
+  через `filter(name, source, setpoint)`, Rust подписывается на `source`,
+  фильтрует, обновляет `name`. Скрипт видит готовую сущность.
+  Варианты: (A) конкретные функции `filter`/`threshold`/`timer`;
+  (B) общий `create_virtual(name, {type, ...})`;
+  (C) конфиг `[[virtual.filter]]` вместо скрипта

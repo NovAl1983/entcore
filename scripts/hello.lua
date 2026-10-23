@@ -1,3 +1,10 @@
+entity_id = {"light.living_room", "light.kitchen", "sensor.kitchen_motion"},
+
+registr_entity_id(entity_id) -- rust функция которая возвращает в ядро коллекцию entity_id
+
+
+
+
 return function(event)
             log("событие: " .. event.entity_id)
             log("значение: " .. tostring(event.value))

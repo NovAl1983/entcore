@@ -26,7 +26,7 @@ impl ScriptEngine {
     }
 
     pub fn load_scripts(&mut self, dir: impl AsRef<Path>) -> Result<(), Box<dyn std::error::Error>> {
-        let scripts = source::load_scripts(dir)?;
+        let scripts: Vec<source::Script> = source::load_scripts(dir)?;
         for script in scripts {
             let func: Function = self.lua.load(&script.source_code)
                 .set_name(&script.name)   // ← полезно для ошибок
