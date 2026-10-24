@@ -1,10 +1,15 @@
 
-use std::{collections::HashMap, path::{Path, PathBuf}, println};
+use std::{collections::HashMap, path::{Path, PathBuf}, println, sync::mpsc::{Receiver, Sender}, time::Duration};
 use cfg::Config;
 use ent_lua::source;
+use std::sync::mpsc;
 
 use mlua::{Lua, Function, UserData};
 
+
+pub fn registr_entity_id(ids: Vec<String>, tx: Sender<Vec<String>>) {
+    tx.send(ids).unwrap();
+}
 
 
 
@@ -14,16 +19,12 @@ struct AutomationEvent {
     value: f64,
 }
 
-#[derive(Debug)]
-struct FunctionsMap {
-    script_name: String,
-    function: Function
-} 
+
 
 struct  ScriptEngine {
     lua: Lua,
-    functions: Vec<FunctionsMap>,
-    subscriptions: HashMap<String, Vec<String>>,  // name_script -> vec<entity_id>
+    functions: Vec<Function>,
+    subscriptions: HashMap<String, Vec<Function>>, // name_script -> vec<entity_id>
 }
 
 impl ScriptEngine {
@@ -33,26 +34,45 @@ impl ScriptEngine {
             lua, 
             functions: Vec::new(),
             subscriptions:HashMap::new(),
+            
         })
     }
 
-    pub fn load_scripts(&mut self, dir: impl AsRef<Path>) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn load_scripts(&mut self, dir: impl AsRef<Path>, rx: Receiver<Vec<String>>) -> Result<(), Box<dyn std::error::Error>> {
         let scripts: Vec<source::Script> = source::load_scripts(dir)?;
         for script in scripts {
             let func: Function = self.lua.load(&script.source_code)
                 .set_name(&script.name)   // ← полезно для ошибок
                 .eval()?;
-            let name = script.name;
-
-            self.functions.push(FunctionsMap { script_name: name, function: func });
-            // self.subscriptions.insert(script.name, v)
+            match rx.recv_timeout(Duration::from_millis(500)) {
+                Ok(ids) => {
+                    for id in ids {
+                    self.subscriptions.entry(id).or_default().push(func.clone());
+            } 
+                },
+                Err(e) => {println!("Ошибка ({}) вызова функции registr_entity_id в скрипте {}", e, script.name)}
+            }
+             self.functions.push(func);
         }
         Ok(())
     }
 
-    pub fn call_functions(&self, event: AutomationEvent) -> Result<(), mlua::Error> {
+    pub fn call_all_functions(&self, event: AutomationEvent) -> Result<(), mlua::Error> {
         for f in &self.functions {
-            f.function.call::<()>(event.clone())?;
+            f.call::<()>(event.clone())?;
+        }
+        Ok(())
+    }
+    pub fn call_functions(&self, event: AutomationEvent) -> Result<(), mlua::Error> {
+        let functions = self.subscriptions.get(&event.entity_id);
+        match functions {
+            Some(functions) => {
+                for f in functions {
+                    f.call::<()>(event.clone())?;
+                }
+
+            },
+            None => {println!("Скрипты не подписаны на сущность {}", &event.entity_id) }
         }
         Ok(())
     }
@@ -67,23 +87,23 @@ impl ScriptEngine {
     }
 }
 
-// #[derive(UserData, Clone)]
-// struct Subscriptions {
-//     sub: HashMap<String, Vec<String>> // name_script -> entity_id
-// }
-
-// pub fn register_entity_id(entity_ids: Vec<String>) -> Vec<String> {
-// entity_ids
-// }
-
-
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // канал для функции registr_entity_id_fn
+    let (tx, rx) = mpsc::channel::<Vec<String>>();
+
     // 1. Создаём Lua state
     let mut engine = ScriptEngine::new()?;
 
     // 2. Регистрируем функцию log в глобальном пространстве Lua
     engine.register_log()?;
+
+    let registr_entity_id_fn = engine.lua.create_function(move|_, ids: Vec<String>| {
+            let tx_clone: Sender<Vec<String>> = tx.clone();
+            registr_entity_id(ids, tx_clone);
+            Ok(())
+        })?;
+        engine.lua.globals().set("registr_entity_id", registr_entity_id_fn)?;
+
 
     let dir: PathBuf = { 
         let cfg: Config = Config::load_config("config.toml")
@@ -91,8 +111,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         PathBuf::from(&cfg.system.scripts_directory)
     };
 
-    engine.load_scripts(dir)?;
-
+    engine.load_scripts(dir, rx)?;
 
     let event = AutomationEvent {
         entity_id: "light.kitchen".to_string(),
@@ -100,9 +119,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     engine.call_functions(event)?;
 
-    println!("{:?}", engine.functions);
-
     Ok(())
-
-
 }

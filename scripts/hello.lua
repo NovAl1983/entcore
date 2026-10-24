@@ -1,6 +1,9 @@
--- entity_id = {"light.living_room", "light.kitchen", "sensor.kitchen_motion"},
 
-registr_entity_id({"light.living_room", "light.kitchen", "sensor.kitchen_motion"}) -- rust функция которая возвращает в ядро коллекцию entity_id
+registr_entity_id({
+    "light.living_room", 
+    "light.kitchen", 
+    "sensor.kitchen_motion",
+}) -- rust функция которая возвращает в ядро коллекцию entity_id
 
 
 

@@ -214,3 +214,8 @@ MqttBridge — tokio async (не std::thread).
   Варианты: (A) конкретные функции `filter`/`threshold`/`timer`;
   (B) общий `create_virtual(name, {type, ...})`;
   (C) конфиг `[[virtual.filter]]` вместо скрипта
+  - [ ] **Индексы вместо клонов в `subscriptions`.**
+  Сейчас: `HashMap<String, Vec<Function>>` (клоны).
+  Лучше: `HashMap<String, Vec<usize>>` + `Vec<Function>`.
+  Почему: меньше памяти, проще hot-reload, идентичность.
+  Когда: при добавлении hot-reload или если подписок станет много.
