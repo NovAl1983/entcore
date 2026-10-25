@@ -24,7 +24,7 @@ struct AutomationEvent {
 struct  ScriptEngine {
     lua: Lua,
     functions: Vec<Function>,
-    subscriptions: HashMap<String, Vec<Function>>, // name_script -> vec<entity_id>
+    subscriptions: HashMap<String, Vec<usize>>, // name_script -> vec<entity_id>
 }
 
 impl ScriptEngine {
@@ -44,15 +44,20 @@ impl ScriptEngine {
             let func: Function = self.lua.load(&script.source_code)
                 .set_name(&script.name)   // ← полезно для ошибок
                 .eval()?;
+            let num = self.functions.len();
             match rx.recv_timeout(Duration::from_millis(500)) {
                 Ok(ids) => {
                     for id in ids {
-                    self.subscriptions.entry(id).or_default().push(func.clone());
-            } 
+                        self.subscriptions.entry(id).or_default().push(num);
+                    } 
                 },
-                Err(e) => {println!("Ошибка ({}) вызова функции registr_entity_id в скрипте {}", e, script.name)}
+                Err(e) => {
+                    println!("Ошибка ({}) вызова функции registr_entity_id в скрипте {}", e, script.name);
+                    continue;
+                }
             }
-             self.functions.push(func);
+            self.functions.push(func);
+
         }
         Ok(())
     }
@@ -67,10 +72,9 @@ impl ScriptEngine {
         let functions = self.subscriptions.get(&event.entity_id);
         match functions {
             Some(functions) => {
-                for f in functions {
-                    f.call::<()>(event.clone())?;
+                for &f in functions {
+                    self.functions[f].call::<()>(event.clone())?;
                 }
-
             },
             None => {println!("Скрипты не подписаны на сущность {}", &event.entity_id) }
         }
