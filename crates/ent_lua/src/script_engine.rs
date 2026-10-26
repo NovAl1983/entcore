@@ -2,6 +2,7 @@
 use mlua::{Lua, Function, UserData};
 use std::{collections::HashMap, path::Path, println, sync::mpsc::{self, Receiver}, time::Duration};
 use crate::source;
+use ent_core::handle::EntityHandle;
 
 #[derive(UserData, Clone)]
 pub struct AutomationEvent {
@@ -15,19 +16,20 @@ pub struct  ScriptEngine {
     pub functions: Vec<Function>,
     pub subscriptions: HashMap<String, Vec<usize>>, // entity_id -> Vec<usize>> где usize это номер элемента вектора в  pub functions: Vec<Function>,
     pub tx: mpsc::Sender<Vec<String>>,
+    pub tx_handle: EntityHandle,
 
 }
 
 impl ScriptEngine {
-    pub fn new() -> Result<(Self, mpsc::Receiver<Vec<String>>), mlua::Error> {
+    pub fn new(tx_handle: EntityHandle) -> Result<(Self, mpsc::Receiver<Vec<String>>), mlua::Error> {
         let lua = Lua::new();
         let (tx, rx) = mpsc::channel();
         Ok((Self {
             lua, 
             functions: Vec::new(),
             subscriptions:HashMap::new(),
-            tx
-            
+            tx,
+            tx_handle 
         }, rx))
     }
 
@@ -94,11 +96,22 @@ impl ScriptEngine {
         Ok(())
         }
 
+        pub fn get_entity(&self) -> Result<(), mlua::Error> {
+            let handle = self.tx_handle.clone();
+            let f = self.lua.create_function(move |_, entity_id: String| {
+                 let entity = handle.get_state_blocking(&entity_id);
+                 println!("Полученна сущность: {:?}", entity);
+                 Ok(())
+
+             })?;
+        self.lua.globals().set("get_entity", f)?; 
+        Ok(())
+        }
+
+
+
     
 
 }
 
 
-// pub fn registr_entity_id(ids: Vec<String>, tx: Sender<Vec<String>>) {
-//     tx.send(ids).unwrap();
-// }

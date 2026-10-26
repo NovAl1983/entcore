@@ -99,6 +99,7 @@ name = "ent_lua"
 version = "0.1.0"
 dependencies = [
  "cfg",
+ "ent_core",
  "mlua",
 ]
 

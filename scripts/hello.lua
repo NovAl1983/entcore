@@ -5,6 +5,9 @@ registr_entity_id({
     "sensor.kitchen_motion",
 }) -- rust функция которая возвращает в ядро коллекцию entity_id
 
+-- для теста: вызвать при загрузке
+get_entity("light.kitchen")
+
 
 
 
