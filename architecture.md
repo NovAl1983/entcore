@@ -219,3 +219,7 @@ MqttBridge — tokio async (не std::thread).
   Лучше: `HashMap<String, Vec<usize>>` + `Vec<Function>`.
   Почему: меньше памяти, проще hot-reload, идентичность.
   Когда: при добавлении hot-reload или если подписок станет много.
+  - [ ] **Обработка ошибок в ScriptRunner.**
+  Сейчас: `expect` (паника в потоке).
+  Надо: `match` + `log` + `return` (или `Result` в `ScriptRunnerHandle`).
+  Почему: паника в потоке не видна `main`, пока тот не сделает `send`.
