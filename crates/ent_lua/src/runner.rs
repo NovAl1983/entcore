@@ -36,7 +36,7 @@ impl ScriptRunner {
                 let (mut engine, receiver) = ScriptEngine::new(tx_handle).expect(r"ошибка в crates\ent_lua\src\runner.rs - fn spawn");
                 engine.register_log().expect(r"ошибка в crates\ent_lua\src\runner.rs - fn spawn");
                 engine.registr_entity_id().expect(r"ошибка в crates\ent_lua\src\runner.rs - fn spawn");
-                engine.get_entity().expect(r"ошибка в crates\ent_lua\src\runner.rs - fn spawn");
+                engine.get_state().expect(r"ошибка в crates\ent_lua\src\runner.rs - fn spawn");
                 engine.load_scripts(scripts_dir, receiver).expect(r"ошибка в crates\ent_lua\src\runner.rs - fn spawn");
 
             loop {

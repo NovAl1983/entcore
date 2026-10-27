@@ -2,7 +2,8 @@
 use mlua::{Lua, Function, UserData};
 use std::{collections::HashMap, path::Path, println, sync::mpsc::{self, Receiver}, time::Duration};
 use crate::source;
-use ent_core::handle::EntityHandle;
+use ent_core::{EntityState, LightState, handle::EntityHandle};
+use ent_core::state::SensorState;
 
 #[derive(UserData, Clone)]
 pub struct AutomationEvent {
@@ -96,15 +97,22 @@ impl ScriptEngine {
         Ok(())
         }
 
-        pub fn get_entity(&self) -> Result<(), mlua::Error> {
+        pub fn get_state(&self) -> Result<(), mlua::Error> {
             let handle = self.tx_handle.clone();
+            let lua = self.lua.clone(); 
             let f = self.lua.create_function(move |_, entity_id: String| {
-                 let entity = handle.get_state_blocking(&entity_id);
-                 println!("Полученна сущность: {:?}", entity);
-                 Ok(())
-
-             })?;
-        self.lua.globals().set("get_entity", f)?; 
+                match handle.get_state_blocking(&entity_id) {
+                    Some(e) => match e.state {
+                        EntityState::Light(l) => Ok(mlua::Value::UserData(lua.create_userdata(l)?)),
+                        EntityState::Sensor(s) => Ok(mlua::Value::Number(s.value)),
+                        EntityState::BinarySensor(b) => Ok(mlua::Value::Boolean(b.is_on)),
+                        EntityState::InputBoolean(i) => Ok(mlua::Value::Boolean(i.is_on)),
+                        EntityState::Counter(c) => Ok(mlua::Value::Number(c.value as f64)),
+        },
+                    None => Ok(mlua::Value::Nil),
+    }
+})?;
+        self.lua.globals().set("get_state", f)?; 
         Ok(())
         }
 

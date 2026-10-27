@@ -12,7 +12,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     handle.register(Entity {
     id: "light.kitchen".to_string(),
     friendly_name: "Кухня".to_string(),
-    state: EntityState::Light(LightState { is_on: true, brightness: None, color_temp: None }),
+    state: EntityState::Light(LightState { is_on: true, brightness: Some(200), color_temp: None }),
 });
 std::thread::sleep(Duration::from_millis(50)); // ← дать менеджеру обработать
     let runner = ScriptRunner::spawn(dir, handle);

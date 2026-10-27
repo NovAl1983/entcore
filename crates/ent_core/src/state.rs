@@ -1,4 +1,4 @@
-
+use mlua::UserData;
 
 
 
@@ -14,7 +14,7 @@ pub enum EntityState {
 
 // Каждая сущность теперь имеет свою независимую, чистую структуру данных
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, UserData)]
 pub struct LightState {
     pub is_on: bool,
     pub brightness: Option<u8>,

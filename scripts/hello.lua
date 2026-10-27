@@ -6,8 +6,12 @@ registr_entity_id({
 }) -- rust функция которая возвращает в ядро коллекцию entity_id
 
 -- для теста: вызвать при загрузке
-get_entity("light.kitchen")
-
+-- get_state("light.kitchen")
+local light = get_state("light.kitchen")  -- true / false / 42.0 / nil
+if light ~= nil then
+    log("свет: " .. tostring(light.is_on))
+    log("свет: " .. tostring(light.brightness))
+end
 
 
 
