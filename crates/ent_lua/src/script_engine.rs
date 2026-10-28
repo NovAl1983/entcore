@@ -4,12 +4,14 @@ use std::{collections::HashMap, path::Path, println, sync::mpsc::{self, Receiver
 use crate::source;
 use ent_core::{EntityState, LightState, handle::EntityHandle};
 use ent_core::state::SensorState;
+use ent_core::EntityManager;
 
 #[derive(UserData, Clone)]
 pub struct AutomationEvent {
     pub entity_id: String,
     pub value: f64,
 }
+
 
 
 pub struct  ScriptEngine {

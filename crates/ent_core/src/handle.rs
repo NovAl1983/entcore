@@ -40,18 +40,18 @@ let _ = self.tx.send(EntityMessage::Register(entity));
             });
      }
 /// Обновить состояние конкретного поля сущности
-     pub fn update_field(
-    &self,
-    entity_id: impl Into<String>,
-    field: FieldUpdate,
-    source: UpdateSource,
-) {
-    let _ = self.tx.send(EntityMessage::UpdateStateField {
-        entity_id: entity_id.into(),
-        field,
-        source,
-    });
-}
+    pub fn update_field(
+        &self,
+        entity_id: impl Into<String>,
+        field: FieldUpdate,
+        source: UpdateSource,
+    ) {
+        let _ = self.tx.send(EntityMessage::UpdateStateField {
+            entity_id: entity_id.into(),
+            field,
+            source,
+        });
+    }
 
   // блокирующий метод для сихронного кода  
   pub fn get_state_blocking(&self, entity_id: &str) -> Option<Entity> {

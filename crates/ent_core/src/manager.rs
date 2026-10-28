@@ -10,7 +10,7 @@ use  crate::state::{EntityState, FieldUpdate};
 
 pub struct EntityManager {
     rx: mpsc::UnboundedReceiver<EntityMessage>,
-    entities: HashMap<String, Entity>,
+    pub entities: HashMap<String, Entity>,
 }
 
 impl EntityManager {

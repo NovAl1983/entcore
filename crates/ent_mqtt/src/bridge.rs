@@ -55,19 +55,19 @@ impl MqttBridge {
                     let payload = String::from_utf8_lossy(&p.payload);
                     if let Some(mapping) = self.topics.state_topic.get(&p.topic) {
                         let field = match mapping.kind {
-            TopicKind::LightIsOn => {
-                let v = payload == "1" || payload == "true" || payload == "ON";
-                FieldUpdate::IsOn(v)
-            }
-            TopicKind::LightBrightness => {
-                FieldUpdate::Brightness(payload.parse().ok())
-            }
-            TopicKind::LightColorTemp => {
-                FieldUpdate::ColorTemp(payload.parse().ok())
-            }
-            TopicKind::SensorValue => {
-                FieldUpdate::Value(payload.parse().unwrap_or(0.0))
-            }
+                        TopicKind::LightIsOn => {
+                            let v = payload == "1" || payload == "true" || payload == "ON";
+                            FieldUpdate::IsOn(v)
+                        }
+                        TopicKind::LightBrightness => {
+                            FieldUpdate::Brightness(payload.parse().ok())
+                        }
+                        TopicKind::LightColorTemp => {
+                            FieldUpdate::ColorTemp(payload.parse().ok())
+                        }
+                        TopicKind::SensorValue => {
+                            FieldUpdate::Value(payload.parse().unwrap_or(0.0))
+                        }
         };
         self.handle.update_field(mapping.entity_id.clone(), field, UpdateSource::Mqtt);
     }
