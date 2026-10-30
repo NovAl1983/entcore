@@ -1,12 +1,13 @@
 
 // use crate::state::{EntityState, LightState, SensorState, BinarySensorState, CounterState, InputBooleanState};
-use crate::state::{EntityState};
+use crate::state::{EntityState,};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Entity {
     pub id: String,
     pub friendly_name: String,
     pub state: EntityState,
+    // pub state_filed_kind: LightStateFiledKind,
 }
 
 
@@ -28,6 +29,7 @@ use crate::state::{EntityState, LightState,};
                 brightness: None,
                 color_temp: None,
     }),
+            // state_filed_kind: LightStateFiledKind::new(),
 };
 
         assert_eq!(e.id, "light.living_room");
