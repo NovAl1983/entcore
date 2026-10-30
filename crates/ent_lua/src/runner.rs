@@ -3,6 +3,8 @@ use crate::script_engine::{AutomationEvent};
 use std::sync::mpsc;
 use std::path::Path;
 use ent_core::handle::EntityHandle;
+use ent_core::manager::EntityManager;
+use std::collections::HashMap;
 
 
 pub enum ScriptRunnerMessage {
@@ -26,14 +28,15 @@ impl ScriptRunnerHandle {
 pub struct ScriptRunner;
 
 impl ScriptRunner {
-    pub fn spawn(scripts_dir: impl AsRef<Path> + Send + 'static, tx_handle: EntityHandle) -> ScriptRunnerHandle {
+    pub fn spawn(scripts_dir: impl AsRef<Path> + Send + 'static, tx_handle: EntityHandle, entities:  HashMap<String, ent_core::Entity>) -> ScriptRunnerHandle {
         let (tx, rx) = mpsc::channel();
+        
         
         std::thread::Builder::new()
             .name("script-runner".into())
             .spawn(move || {
                 // let mut engine = ScriptEngine::new().expect(r"ошибка в crates\ent_lua\src\runner.rs - fn spawn");
-                let (mut engine, receiver) = ScriptEngine::new(tx_handle).expect(r"ошибка в crates\ent_lua\src\runner.rs - fn spawn");
+                let (mut engine, receiver) = ScriptEngine::new(tx_handle, entities).expect(r"ошибка в crates\ent_lua\src\runner.rs - fn spawn");
                 engine.register_log().expect(r"ошибка в crates\ent_lua\src\runner.rs - fn spawn");
                 engine.registr_entity_id().expect(r"ошибка в crates\ent_lua\src\runner.rs - fn spawn");
                 engine.get_state().expect(r"ошибка в crates\ent_lua\src\runner.rs - fn spawn");

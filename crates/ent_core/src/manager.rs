@@ -8,6 +8,7 @@ use crate::handle::EntityHandle;
 use crate::message::EntityMessage;
 use  crate::state::{EntityState, FieldUpdate};
 
+
 pub struct EntityManager {
     rx: mpsc::UnboundedReceiver<EntityMessage>,
     pub entities: HashMap<String, Entity>,
@@ -115,6 +116,11 @@ impl EntityManager {
         }
 
 
+    }
+
+    pub fn get_entities(self) -> HashMap<String, Entity> {
+        let e = self.entities.clone();
+        e
     }
 }
 

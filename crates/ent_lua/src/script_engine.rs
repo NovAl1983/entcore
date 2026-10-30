@@ -5,6 +5,7 @@ use crate::source;
 use ent_core::{EntityState, LightState, handle::EntityHandle};
 use ent_core::state::SensorState;
 use ent_core::EntityManager;
+use ent_core::state_filed_kind::StateFiledKind;
 
 #[derive(UserData, Clone)]
 pub struct AutomationEvent {
@@ -20,19 +21,22 @@ pub struct  ScriptEngine {
     pub subscriptions: HashMap<String, Vec<usize>>, // entity_id -> Vec<usize>> где usize это номер элемента вектора в  pub functions: Vec<Function>,
     pub tx: mpsc::Sender<Vec<String>>,
     pub tx_handle: EntityHandle,
+    pub state_kind: StateFiledKind,
 
 }
 
 impl ScriptEngine {
-    pub fn new(tx_handle: EntityHandle) -> Result<(Self, mpsc::Receiver<Vec<String>>), mlua::Error> {
+    pub fn new(tx_handle: EntityHandle, entities: HashMap<String, ent_core::Entity> ) -> Result<(Self, mpsc::Receiver<Vec<String>>), mlua::Error> {
         let lua = Lua::new();
         let (tx, rx) = mpsc::channel();
+        let state_kind = StateFiledKind::new(entities);
         Ok((Self {
             lua, 
             functions: Vec::new(),
             subscriptions:HashMap::new(),
             tx,
-            tx_handle 
+            tx_handle,
+            state_kind,
         }, rx))
     }
 
@@ -117,6 +121,9 @@ impl ScriptEngine {
         self.lua.globals().set("get_state", f)?; 
         Ok(())
         }
+
+
+        // pub set_state
 
 }
 

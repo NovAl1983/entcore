@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use mlua::UserData;
+use crate::Entity;
 
 use crate::{EntityManager, EntityState::{BinarySensor, Counter, InputBoolean, Light, Sensor}};
 // use crate::state::FiledKind;
@@ -18,9 +19,9 @@ pub struct StateFiledKind {
 }
 
 impl StateFiledKind {
-    pub fn new(&mut self, entities: &EntityManager) -> Self {
+    pub fn new( entities: HashMap<String, Entity>) -> Self {
         let mut map:HashMap<String, StateKind> = HashMap::new();
-        for (ent_id, entity) in entities.entities.clone() {
+        for (ent_id, entity) in entities {
             match entity.state {
                 Light(_) => {map.insert(ent_id.to_string(), StateKind::Light);}
                 Sensor(_) =>{map.insert(ent_id.to_string(), StateKind::Sensor);}
