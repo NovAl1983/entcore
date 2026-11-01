@@ -5,4 +5,4 @@ edition = "2024"
 
 [dependencies]
 tokio = { version = "1", features = ["sync"] }
-mlua = { version = "0.12", features = ["macros"] }
+mlua = { version = "0.12", features = ["lua54", "vendored", "macros"] }

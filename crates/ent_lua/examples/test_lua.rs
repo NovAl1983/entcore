@@ -22,6 +22,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     friendly_name: "Движение кухня".to_string(),
     state: EntityState::Sensor(SensorState { value: 0.0 }),
     });
+    
 
 std::thread::sleep(Duration::from_millis(50)); // ← дать менеджеру обработать
     let runner = ScriptRunner::spawn(dir, handle);

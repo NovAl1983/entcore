@@ -5,13 +5,15 @@ use tokio::sync::mpsc;
 
 use crate::entity::Entity;
 use crate::handle::EntityHandle;
-use crate::message::EntityMessage;
+use crate::message::{EntityMessage, Notification};
 use  crate::state::{EntityState, FieldUpdate};
+use crate::state_filed_kind::StateKind;
 
 
 pub struct EntityManager {
     rx: mpsc::UnboundedReceiver<EntityMessage>,
     pub entities: HashMap<String, Entity>,
+    subscribers: Vec<tokio::sync::mpsc::UnboundedSender<Notification>>,
 }
 
 impl EntityManager {
@@ -21,6 +23,7 @@ impl EntityManager {
         let manager = Self {
             rx,
             entities: HashMap::new(),
+            subscribers: Vec::new(),
         };
 
         thread::Builder::new()
@@ -40,9 +43,21 @@ impl EntityManager {
                     println!("Сущность с  id = {} уже существует", id);
                     continue;
                     }
+
+                    let notification = Notification::Registered {
+                        id: entity.id.clone(),
+                        kind: StateKind::from_state(&entity.state),
+                    };
+
+                for tx in &self.subscribers {
+                    let _ = tx.send(notification.clone());
+                }
                    
                     self.entities.insert(entity.id.clone(), entity);
                     println!("Сущность с  id = {} добавленна в entities", id);
+
+
+
                    
                 },
                 EntityMessage::WaitReady { reply } => {
@@ -94,6 +109,17 @@ impl EntityManager {
                 continue;
             }
         }
+
+            let notification = Notification::Changed {
+        id: entity_id.clone(),
+        state: entity.state.clone(),
+    };
+    for tx in &self.subscribers {
+        let _ = tx.send(notification.clone());
+    }
+
+        
+
         println!("🔄 '{}' обновлена (field, source: {:?})", entity_id, source);
     } else {
         eprintln!("⚠️ UpdateStateField: неизвестная '{}'", entity_id);
@@ -112,6 +138,12 @@ impl EntityManager {
                     println!("EntityManager: получен Shutdown");
                     break;
                 },
+                EntityMessage::Subscribe { reply } => {
+                    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+                    self.subscribers.push(tx);
+                    let snapshot: Vec<Entity> = self.entities.values().cloned().collect();
+                    let _ = reply.send((snapshot, rx));
+}
             }
         }
 

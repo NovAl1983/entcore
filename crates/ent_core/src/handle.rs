@@ -3,7 +3,7 @@ use tokio::sync::oneshot;
 
 
 
-use crate::message::{EntityMessage, UpdateSource};
+use crate::message::{EntityMessage, UpdateSource, Notification};
 use crate::entity::Entity;
 use crate::state::{EntityState, FieldUpdate};
 
@@ -87,13 +87,12 @@ let _ = self.tx.send(EntityMessage::Register(entity));
         // Ждем, пока менеджер обработает все сообщения перед нами и ответит в rx
         rx.await.map_err(|_| "Поток EntityManager аварийно завершился".to_string())
     }
+
+    pub fn subscribe_blocking(&self) ->Option<(Vec<Entity>, tokio::sync::mpsc::UnboundedReceiver<Notification>)>  {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    self.tx.send(EntityMessage::Subscribe { reply: tx }).ok()?;
+    rx.blocking_recv().ok()
+}
     
-  //  /// Прочитать сущность (async).
-    // pub async fn get_state(&self, entity_id: &str) -> Option<Entity> { ... }
-    
-  //  /// Список всех (async).
-    // pub async fn list_all(&self) -> Vec<Entity> { ... }
-    
-   // /// Завершить работу.
-    // pub fn shutdown(&self) { ... }
+
 }

@@ -1,6 +1,9 @@
 use crate::entity::Entity;
 use crate::state::{EntityState, FieldUpdate};
 use tokio::sync::oneshot;
+use crate::state_filed_kind::StateKind;
+// use tokio::sync::mpsc;
+use std::sync::mpsc;
 
 /// Сообщения, которые модули шлют в EntityManager.
 #[derive(Debug)]
@@ -39,6 +42,10 @@ pub enum EntityMessage {
         reply: oneshot::Sender<Vec<Entity>>,
     },
 
+    Subscribe {
+        reply: oneshot::Sender<(Vec<Entity>, tokio::sync::mpsc::UnboundedReceiver<Notification>)>,
+    },
+
     /// Завершить работу актора.
     Shutdown,
 }
@@ -51,4 +58,10 @@ pub enum UpdateSource {
     Timer,
     Helper,
     System,
+}
+
+#[derive(Debug, Clone)]
+pub enum Notification {
+    Registered { id: String, kind: StateKind },
+    Changed { id: String, state: EntityState },
 }

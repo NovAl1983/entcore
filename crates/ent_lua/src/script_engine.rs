@@ -26,10 +26,10 @@ pub struct  ScriptEngine {
 }
 
 impl ScriptEngine {
-    pub fn new(tx_handle: EntityHandle, entities: HashMap<String, ent_core::Entity> ) -> Result<(Self, mpsc::Receiver<Vec<String>>), mlua::Error> {
+    pub fn new(tx_handle: EntityHandle ) -> Result<(Self, mpsc::Receiver<Vec<String>>), mlua::Error> {
         let lua = Lua::new();
         let (tx, rx) = mpsc::channel();
-        let state_kind = StateFiledKind::new(entities);
+        let state_kind = StateFiledKind::new();
         Ok((Self {
             lua, 
             functions: Vec::new(),
