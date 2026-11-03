@@ -1,0 +1,1664 @@
+=== Дата: 2026-11-03 07:31:10 ===
+=== ENTCORE Project ===
+=== Ветка: set ===
+
+=== СТРУКТУРА ПРОЕКТА ===
+├── ./
+├── .git/
+├── crates/
+  ├── cfg/
+    ├── src/
+  ├── ent_core/
+    ├── src/
+    ├── tests/
+  ├── ent_ctl/
+    ├── src/
+  ├── ent_lua/
+    ├── examples/
+    ├── src/
+  ├── ent_mqtt/
+    ├── examples/
+    ├── src/
+├── scripts/
+├── target/
+
+=== СОДЕРЖИМОЕ ФАЙЛОВ ===
+
+--- ./Cargo.toml ---
+[workspace]
+members = [
+    "crates/ent_core",
+    "crates/cfg",
+    "crates/ent_ctl",
+    "crates/ent_mqtt",
+    "crates/ent_lua",
+    ]
+
+resolver = "2"
+
+
+--- ./config.toml ---
+# =====================================================================
+# НАСТРОЙКИ СИСТЕМЫ И ИНТЕГРАЦИЙ
+# =====================================================================
+[system]
+scripts_directory = "D://Rust//projects//entcore//scripts"
+
+[integrations.mqtt]
+host = "localhost"
+port = 1883
+
+
+[integrations.modbus_rtu]
+port = "/dev/ttyRS485-1"
+baud_rate = 9600
+data_bits = 8
+stop_bits = 2
+parity = "N"
+
+# =====================================================================
+# РЕЕСТР СУЩНОСТЕЙ ПО ПЛАТФОРМАМ (INTEGRATIONS)
+# =====================================================================
+
+# 🌐 1. УСТРОЙСТВА, РАБОТАЮЩИЕ ЧЕРЕЗ MQTT
+[[mqtt.light]]
+entity_id = "light.living_room"
+name = "люстра в зале"
+state_topic = "/devices/wb-mr6cv3_189/controls/K2"
+command_topic = "/devices/wb-mr6cv3_189/controls/K2/on"
+brightness_state_topic = "/devices/wb-mr6cv3_189/controls/Brightness"
+brightness_command_topic = "/devices/wb-mr6cv3_189/controls/Brightness/on"
+brightness_scale = 254
+
+[[mqtt.light]]
+entity_id = "light.kitchen"
+name = "люстра на кухне"
+state_topic = "/devices/wb-mr6cv3_200/controls/K2"
+command_topic = "/devices/wb-mr6cv3_200/controls/K2/on"
+brightness_state_topic = "/devices/wb-mr6cv3_200/controls/Brightness"
+brightness_command_topic = "/devices/wb-mr6cv3_200/controls/Brightness/on"
+brightness_scale = 254
+color_temp_state_topic = "/devices/wb-mr6cv3_200/controls/ColorTemp"
+color_temp_command_topic = "/devices/wb-mr6cv3_200/controls/Brightness/on"
+color_temp_scale = 254
+
+[[mqtt.sensor]]
+entity_id = "sensor.kitchen_motion"
+name = "датчик движения кухня"
+state_topic = "/devices/wb-msw-v4_220/controls/Current Motion"
+
+[[mqtt.sensor]]
+entity_id = "sensor.kitchen_illuminance"
+name = "датчик освещенности кухня"
+state_topic = "/devices/wb-msw-v4_200/controls/Illuminance"
+
+
+# ☁️ 3. УСТРОЙСТВА ИЗ ИНТЕРНЕТА (HTTP / REST)
+[[http]]
+entity_id = "sensor.yandex_weather"
+name = "Погода"
+url = "https://yandex.ru"
+scan_interval = 600
+
+# 🧠 4. ВИРТУАЛЬНЫЕ ПОМОЩНИКИ (HELPERS - НА СТОРОНЕ ЯДРА RUST)
+[[helper.input_boolean]]
+entity_id = "input_boolean.night_mode"
+name = "Ночной режим"
+initial = false
+
+
+# =====================================================================
+# все что ниже пока не реализовываем (заметки на будущее!!!)
+# =====================================================================
+
+
+# ПРИМЕРЫ ДРУГИХ ПЛАТФОРМ (НА БУДУЩИЕ)
+
+# 🛠️ 2. БУДУЩИЕ УСТРОЙСТВА, РАБОТАЮЩИЕ ЧЕРЕЗ MODBUS RTU НАПРЯМУЮ (БЕЗ MQTT драйвера WB)
+#[[modbus_rtu.switch]]
+#entity_id = "switch.ventilation_relay"
+#name = "Реле вентиляции"
+#slave_id = 14
+#register_address = 0
+#register_type = "holding" # или coil
+
+#[[modbus_rtu.sensor]]
+#entity_id = "sensor.outdoor_temperature"
+#name = "Уличная температура"
+#slave_id = 25
+#register_address = 4
+#register_type = "input"
+#data_type = "f32"
+
+#  ПРИМЕР СОЗДАНИЯ ВИРТУАЛЬНОГО УСТРОЙСТВА (MQTT) (из старого проекта пока нет  в планах реализовавать)
+# виртуальное устройство термостат
+#[virtual.house_thermostat]
+#target = '''{"topic_type": "range", "value": 27.0, "type": "f64",   "min": 10, "max": 30, "retain": true } '''
+#current_temp = '''{"topic_type": "range", "value": 32.0, "type": "f64", "retain": true, "readonly": true, "forceDefault": true}'''
+#activaited = ''' {"topic_type": "switch", "value": false, "type": "bool", "retain": true }'''
+
+--- ./crates/cfg/Cargo.toml ---
+[package]
+name = "cfg"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
+serde_json = "1" 
+
+
+--- ./crates/cfg/src/lib.rs ---
+//cd /d/Rust/projects/entcore/config.toml
+//D:\Rust\projects\entcore\config.toml
+
+//use std::{collections::HashMap, println};
+use serde::Deserialize;
+use std::error::Error;
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct Config {
+    pub system: System,
+    pub integrations: Integrations,
+    #[serde(default)]
+    pub mqtt: Mqtt,
+    #[serde(default)]
+    pub http: Vec<Http>,
+    #[serde(default)]
+    pub helper: Helper,
+}
+
+impl Config {
+    pub fn load_config(path: &str) -> Result<Self, Box<dyn Error + Send + Sync>> {
+        let cfg_str = std::fs::read_to_string(path)?;
+        let config: Config = toml::from_str(&cfg_str)?;
+
+        let has_integration =
+            config.integrations.mqtt.is_some() || config.integrations.modbus_rtu.is_some();
+        let has_helper = !config.helper.input_boolean.is_empty();
+
+        if !has_integration && !has_helper {
+            return Err(format!(
+                "Конфиг {path} пуст: нет ни интеграций (mqtt/modbus_rtu), \
+                 ни helpers (input_boolean). Движку не с чем работать."
+            )
+            .into());
+        }
+
+        Ok(config)
+    }
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct System {
+    pub scripts_directory: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct Integrations {
+    pub mqtt: Option<MqttBroker>,
+    pub modbus_rtu: Option<ModbusRtu>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct MqttBroker {
+    pub host: String,
+    pub port: u16,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct ModbusRtu {
+    pub port: String,   // "/dev/ttyRS485-1"
+    pub baud_rate: u32, //  9600
+    pub data_bits: u8,  // 8
+    pub stop_bits: u8,  // 2
+    // TODO: заменить на enum Parity
+    pub parity: String, // "N"
+}
+
+#[derive(Debug, Deserialize, Clone, Default)]
+pub struct Mqtt {
+    #[serde(default)]
+    pub light: Vec<MqttLight>,
+    #[serde(default)]
+    pub sensor: Vec<MqttSensor>,
+}
+
+#[derive(Debug, Deserialize, Clone, Default)]
+pub struct MqttLight {
+    pub entity_id: String,
+    pub name: String,
+    pub state_topic: String,
+    pub command_topic: String,
+    #[serde(default)]
+    pub brightness_state_topic: Option<String>,
+    #[serde(default)]
+    pub brightness_command_topic: Option<String>,
+    #[serde(default)]
+    pub brightness_scale: Option<u16>,
+    #[serde(default)]
+    pub color_temp_state_topic: Option<String>,
+    #[serde(default)]
+    pub color_temp_command_topic: Option<String>,
+    #[serde(default)]
+    pub color_temp_scale: Option<u16>,
+}
+
+#[derive(Debug, Deserialize, Clone, Default)]
+pub struct MqttSensor {
+    pub entity_id: String,
+    pub name: String,
+    pub state_topic: String,
+}
+
+#[derive(Debug, Deserialize, Clone, Default)]
+pub struct Http {
+    pub entity_id: String,
+    pub name: String,
+    pub url: String,
+    pub scan_interval: u64,
+}
+
+#[derive(Debug, Deserialize, Clone, Default)]
+pub struct Helper {
+    #[serde(default)]
+    pub input_boolean: Vec<HelperInputBoolean>,
+}
+
+#[derive(Debug, Deserialize, Clone, Default)]
+pub struct HelperInputBoolean {
+    pub entity_id: String,
+    pub name: String,
+    pub initial: bool,
+}
+
+#[test]
+fn test_load_full_config() {
+    let config = Config::load_config("../../config.toml").expect("Не удалось загрузить конфиг");
+    println!("{:#?}", config);
+
+    // MQTT — обязательная секция в тестовом конфиге
+    let mqtt = config
+        .integrations
+        .mqtt
+        .as_ref()
+        .expect("Ожидалась секция [integrations.mqtt]");
+    assert_eq!(mqtt.host, "localhost");
+    assert_eq!(mqtt.port, 1883);
+
+    // Modbus — тоже есть в тестовом конфиге
+    let modbus = config
+        .integrations
+        .modbus_rtu
+        .as_ref()
+        .expect("Ожидалась секция [integrations.modbus_rtu]");
+    assert_eq!(modbus.port, "/dev/ttyRS485-1");
+
+    // Сущности
+    assert_eq!(config.mqtt.light.len(), 1);
+    assert_eq!(config.mqtt.light[0].entity_id, "light.living_room");
+    assert_eq!(config.mqtt.sensor.len(), 2);
+    assert_eq!(config.http.len(), 1);
+    assert_eq!(config.helper.input_boolean.len(), 1);
+}
+
+
+--- ./crates/ent_core/Cargo.toml ---
+[package]
+name = "ent_core"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tokio = { version = "1", features = ["sync"] }
+mlua = { version = "0.12", features = ["lua54", "vendored", "macros"] }
+
+--- ./crates/ent_core/src/entity.rs ---
+// use crate::state::{EntityState, LightState, SensorState, BinarySensorState, CounterState, InputBooleanState};
+use crate::state::EntityState;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Entity {
+    pub id: String,
+    pub friendly_name: String,
+    pub state: EntityState,
+    // pub state_filed_kind: LightStateFiledKind,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_create_entity() {
+        // Было: state: EntityState::Light { is_on: false, brightness: None, color_temp: None }
+        // Стало:
+        use crate::state::{EntityState, LightState};
+
+        let e = Entity {
+            id: "light.living_room".to_string(),
+            friendly_name: "Люстра в зале".to_string(),
+            state: EntityState::Light(LightState {
+                is_on: false,
+                brightness: None,
+                color_temp: None,
+            }),
+            // state_filed_kind: LightStateFiledKind::new(),
+        };
+
+        assert_eq!(e.id, "light.living_room");
+        // assert_eq!(e.state, EntityState::Light {
+        //     is_on: false,
+        //     brightness: Some(128),
+        //     color_temp: None,
+        // });
+        assert_eq!(
+            e.state,
+            EntityState::Light(LightState {
+                is_on: false,
+                brightness: Some(128),
+                color_temp: None,
+            })
+        );
+    }
+}
+
+
+--- ./crates/ent_core/src/handle.rs ---
+use tokio::sync::mpsc;
+use tokio::sync::oneshot;
+
+use crate::entity::Entity;
+use crate::message::{EntityMessage, Notification, UpdateSource};
+use crate::state::{EntityState, FieldUpdate};
+
+/// Пульт управления EntityManager.
+/// Клонируется, раздаётся модулям.
+#[derive(Clone)]
+pub struct EntityHandle {
+    tx: mpsc::UnboundedSender<EntityMessage>,
+}
+
+impl EntityHandle {
+    pub(crate) fn new(tx: mpsc::UnboundedSender<EntityMessage>) -> Self {
+        Self { tx }
+    }
+
+    /// Зарегистрировать сущность. Fire-and-forget.
+    pub fn register(&self, entity: Entity) {
+        let _ = self.tx.send(EntityMessage::Register(entity));
+    }
+
+    /// Обновить состояние. Fire-and-forget.
+    pub fn update_state(
+        &self,
+        entity_id: impl Into<String>,
+        new_state: EntityState,
+        source: UpdateSource,
+    ) {
+        let _ = self.tx.send(EntityMessage::UpdateState {
+            entity_id: entity_id.into(),
+            new_state,
+            source,
+        });
+    }
+    /// Обновить состояние конкретного поля сущности
+    pub fn update_field(
+        &self,
+        entity_id: impl Into<String>,
+        field: FieldUpdate,
+        source: UpdateSource,
+    ) {
+        let _ = self.tx.send(EntityMessage::UpdateStateField {
+            entity_id: entity_id.into(),
+            field,
+            source,
+        });
+    }
+
+    // блокирующий метод для сихронного кода
+    pub fn get_state_blocking(&self, entity_id: &str) -> Option<Entity> {
+        let (tx, rx) = oneshot::channel();
+        self.tx
+            .send(EntityMessage::GetState {
+                entity_id: entity_id.to_string(),
+                reply: tx,
+            })
+            .ok()?;
+        rx.blocking_recv().ok()?
+    }
+
+    // не блокирующий метод для async
+    pub async fn get_state(&self, entity_id: &str) -> Option<Entity> {
+        let (tx, rx) = oneshot::channel();
+        self.tx
+            .send(EntityMessage::GetState {
+                entity_id: entity_id.to_string(),
+                reply: tx,
+            })
+            .ok()?;
+        rx.await.ok()?
+    }
+
+    /// Подождать, пока менеджер обработает все текущие сообщения в очереди.
+    /// Этот метод асинхронный, его можно вызывать в async-контексте через .await
+    pub async fn wait_ready(&self) -> Result<(), String> {
+        let (tx, rx) = oneshot::channel();
+
+        // Отправляем сообщение в очередь менеджера
+        if self
+            .tx
+            .send(EntityMessage::WaitReady { reply: tx })
+            .is_err()
+        {
+            return Err("EntityManager уже остановлен".to_string());
+        }
+
+        // Ждем, пока менеджер обработает все сообщения перед нами и ответит в rx
+        rx.await
+            .map_err(|_| "Поток EntityManager аварийно завершился".to_string())
+    }
+
+    pub fn subscribe_blocking(
+        &self,
+    ) -> Option<(
+        Vec<Entity>,
+        tokio::sync::mpsc::UnboundedReceiver<Notification>,
+    )> {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.tx.send(EntityMessage::Subscribe { reply: tx }).ok()?;
+        rx.blocking_recv().ok()
+    }
+}
+
+
+--- ./crates/ent_core/src/lib.rs ---
+pub mod entity;
+pub mod handle;
+pub mod manager;
+pub mod message;
+pub mod state;
+pub mod state_filed_kind;
+
+pub use entity::Entity;
+pub use handle::EntityHandle;
+pub use manager::EntityManager;
+pub use message::{EntityMessage, UpdateSource};
+pub use state::{EntityState, FieldUpdate, LightState, SensorState};
+
+
+--- ./crates/ent_core/src/manager.rs ---
+use std::collections::HashMap;
+use std::{println, thread};
+
+use tokio::sync::mpsc;
+
+use crate::entity::Entity;
+use crate::handle::EntityHandle;
+use crate::message::{EntityMessage, Notification};
+use crate::state::{EntityState, FieldUpdate};
+use crate::state_filed_kind::StateKind;
+
+pub struct EntityManager {
+    rx: mpsc::UnboundedReceiver<EntityMessage>,
+    pub entities: HashMap<String, Entity>,
+    subscribers: Vec<tokio::sync::mpsc::UnboundedSender<Notification>>,
+}
+
+impl EntityManager {
+    pub fn spawn() -> EntityHandle {
+        let (tx, rx) = mpsc::unbounded_channel();
+
+        let manager = Self {
+            rx,
+            entities: HashMap::new(),
+            subscribers: Vec::new(),
+        };
+
+        thread::Builder::new()
+            .name("entity-manager".into())
+            .spawn(move || manager.run())
+            .expect("Не удалось запустить поток EntityManager");
+
+        EntityHandle::new(tx)
+    }
+
+    fn run(mut self) {
+        while let Some(msg) = self.rx.blocking_recv() {
+            match msg {
+                EntityMessage::Register(entity) => {
+                    let id = entity.id.clone();
+                    if self.entities.contains_key(&id) {
+                        println!("Сущность с  id = {} уже существует", id);
+                        continue;
+                    }
+
+                    let notification = Notification::Registered {
+                        id: entity.id.clone(),
+                        kind: StateKind::from_state(&entity.state),
+                    };
+
+                    for tx in &self.subscribers {
+                        let _ = tx.send(notification.clone());
+                    }
+
+                    self.entities.insert(entity.id.clone(), entity);
+                    println!("Сущность с  id = {} добавленна в entities", id);
+                }
+                EntityMessage::WaitReady { reply } => {
+                    println!(
+                        "📥 EntityManager: получен запрос WaitReady, подтверждаем готовность..."
+                    );
+                    // Отправляем сигнал обратно. Если вызывающий поток уже умер, игнорируем ошибку (.ok())
+                    let _ = reply.send(());
+                }
+                EntityMessage::UpdateState {
+                    entity_id,
+                    new_state,
+                    source,
+                } => {
+                    if let Some(entity) = self.entities.get_mut(&entity_id) {
+                        if entity.state == new_state {
+                            continue;
+                        }
+                        entity.state = new_state;
+                        println!("🔄 '{}' обновлена (source: {:?})", entity_id, source);
+                    } else {
+                        eprintln!("⚠️ UpdateState: неизвестная '{}'", entity_id);
+                    }
+                }
+                EntityMessage::UpdateStateField {
+                    entity_id,
+                    field,
+                    source,
+                } => {
+                    if let Some(entity) = self.entities.get_mut(&entity_id) {
+                        match (&mut entity.state, field) {
+                            (EntityState::Light(light), FieldUpdate::IsOn(v)) => {
+                                if light.is_on == v {
+                                    continue;
+                                }
+                                light.is_on = v;
+                            }
+                            (EntityState::Light(light), FieldUpdate::Brightness(v)) => {
+                                if light.brightness == v {
+                                    continue;
+                                }
+                                light.brightness = v;
+                            }
+                            (EntityState::Light(light), FieldUpdate::ColorTemp(v)) => {
+                                if light.color_temp == v {
+                                    continue;
+                                }
+                                light.color_temp = v;
+                            }
+                            (EntityState::Sensor(sensor), FieldUpdate::Value(v)) => {
+                                if sensor.value == v {
+                                    continue;
+                                }
+                                sensor.value = v;
+                            }
+                            (EntityState::BinarySensor(binary), FieldUpdate::IsOn(v)) => {
+                                if binary.is_on == v {
+                                    continue;
+                                }
+                                binary.is_on = v;
+                            }
+                            (EntityState::InputBoolean(input_bool), FieldUpdate::IsOn(v)) => {
+                                if input_bool.is_on == v {
+                                    continue;
+                                }
+                                input_bool.is_on = v;
+                            }
+                            _ => {
+                                eprintln!("⚠️ Несовместимое поле для '{}'", entity_id);
+                                continue;
+                            }
+                        }
+
+                        let notification = Notification::Changed {
+                            id: entity_id.clone(),
+                            state: entity.state.clone(),
+                        };
+                        for tx in &self.subscribers {
+                            let _ = tx.send(notification.clone());
+                        }
+
+                        println!("🔄 '{}' обновлена (field, source: {:?})", entity_id, source);
+                    } else {
+                        eprintln!("⚠️ UpdateStateField: неизвестная '{}'", entity_id);
+                    }
+                }
+                EntityMessage::GetState { entity_id, reply } => {
+                    let entity = self.entities.get(&entity_id).cloned();
+                    let _ = reply.send(entity);
+                }
+                EntityMessage::ListAll { reply } => {
+                    let all: Vec<Entity> = self.entities.values().cloned().collect();
+                    let _ = reply.send(all);
+                }
+                EntityMessage::Shutdown => {
+                    println!("EntityManager: получен Shutdown");
+                    break;
+                }
+                EntityMessage::Subscribe { reply } => {
+                    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+                    self.subscribers.push(tx);
+                    let snapshot: Vec<Entity> = self.entities.values().cloned().collect();
+                    let _ = reply.send((snapshot, rx));
+                }
+            }
+        }
+    }
+
+    pub fn get_entities(self) -> HashMap<String, Entity> {
+        let e = self.entities.clone();
+        e
+    }
+}
+
+
+--- ./crates/ent_core/src/message.rs ---
+use crate::entity::Entity;
+use crate::state::{EntityState, FieldUpdate};
+use crate::state_filed_kind::StateKind;
+use tokio::sync::oneshot;
+// use tokio::sync::mpsc;
+use std::sync::mpsc;
+
+/// Сообщения, которые модули шлют в EntityManager.
+#[derive(Debug)]
+pub enum EntityMessage {
+    /// Зарегистрировать сущность при старте.
+    Register(Entity),
+
+    /// Новый вариант: подождать, пока менеджер обработает все предыдущие сообщения.
+    /// Ответ (сигнал готовности) вернется через oneshot-канал.
+    WaitReady { reply: oneshot::Sender<()> },
+
+    /// Обновить состояние сущности.
+    UpdateState {
+        entity_id: String,
+        new_state: EntityState,
+        source: UpdateSource,
+    },
+
+    UpdateStateField {
+        entity_id: String,
+        field: FieldUpdate,
+        source: UpdateSource,
+    },
+
+    /// Прочитать сущность по id. Ответ — через oneshot.
+    GetState {
+        entity_id: String,
+        reply: oneshot::Sender<Option<Entity>>,
+    },
+
+    /// Получить список всех сущностей. Для отладки и WebUI.
+    ListAll { reply: oneshot::Sender<Vec<Entity>> },
+
+    Subscribe {
+        reply: oneshot::Sender<(
+            Vec<Entity>,
+            tokio::sync::mpsc::UnboundedReceiver<Notification>,
+        )>,
+    },
+
+    /// Завершить работу актора.
+    Shutdown,
+}
+
+/// Кто инициировал изменение.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UpdateSource {
+    Mqtt,
+    Script,
+    Timer,
+    Helper,
+    System,
+}
+
+#[derive(Debug, Clone)]
+pub enum Notification {
+    Registered { id: String, kind: StateKind },
+    Changed { id: String, state: EntityState },
+}
+
+
+--- ./crates/ent_core/src/state.rs ---
+use mlua::UserData;
+
+// Enum теперь — это просто чистый диспетчер, который объединяет эти структуры
+#[derive(Debug, Clone, PartialEq)]
+pub enum EntityState {
+    Light(LightState),
+    Sensor(SensorState),
+    BinarySensor(BinarySensorState),
+    Counter(CounterState),
+    InputBoolean(InputBooleanState),
+}
+
+// Каждая сущность теперь имеет свою независимую, чистую структуру данных
+
+#[derive(Debug, Clone, PartialEq, UserData)]
+pub struct LightState {
+    pub is_on: bool,
+    pub brightness: Option<u8>,
+    pub color_temp: Option<u16>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SensorState {
+    pub value: f64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BinarySensorState {
+    pub is_on: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CounterState {
+    pub value: u64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct InputBooleanState {
+    pub is_on: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum FieldUpdate {
+    IsOn(bool),
+    Brightness(Option<u8>),
+    ColorTemp(Option<u16>),
+    Value(f64),
+}
+
+
+--- ./crates/ent_core/src/state_filed_kind.rs ---
+use crate::Entity;
+use crate::EntityState;
+use mlua::UserData;
+use std::collections::HashMap;
+
+use crate::{
+    EntityManager,
+    EntityState::{BinarySensor, Counter, InputBoolean, Light, Sensor},
+};
+// use crate::state::FiledKind;
+
+#[derive(Debug, Clone, PartialEq, UserData)]
+pub enum StateKind {
+    Light,
+    Sensor,
+    BinarySensor,
+    Counter,
+    InputBoolean,
+}
+
+impl StateKind {
+    pub fn from_state(state: &EntityState) -> Self {
+        match state {
+            EntityState::Light(_) => StateKind::Light,
+            EntityState::Sensor(_) => StateKind::Sensor,
+            EntityState::BinarySensor(_) => StateKind::BinarySensor,
+            EntityState::Counter(_) => StateKind::Counter,
+            EntityState::InputBoolean(_) => StateKind::InputBoolean,
+        }
+    }
+}
+
+pub struct StateFiledKind {
+    pub map: HashMap<String, StateKind>,
+}
+
+impl StateFiledKind {
+    pub fn new() -> Self {
+        let map: HashMap<String, StateKind> = HashMap::new();
+
+        Self { map }
+    }
+}
+
+
+--- ./crates/ent_core/tests/manager_test.rs ---
+use ent_core::{Entity, EntityHandle, EntityManager, EntityState, LightState, UpdateSource};
+
+#[test]
+fn test_register_and_get() {
+    // 1. Создаём EntityManager
+    let handle = EntityManager::spawn();
+
+    // 2. Создаём сущность
+    // Было: state: EntityState::Light { is_on: false, brightness: None, color_temp: None }
+    // Стало:
+    let light = Entity {
+        id: "light.living_room".to_string(),
+        friendly_name: "Люстра в зале".to_string(),
+        state: EntityState::Light(LightState {
+            is_on: false,
+            brightness: None,
+            color_temp: None,
+        }),
+    };
+
+    // 3. Регистрируем
+    handle.register(light.clone());
+
+    // 4. Небольшая пауза, чтобы сообщение дошло
+    std::thread::sleep(std::time::Duration::from_millis(50));
+
+    // 5. Читаем через handle
+    let result = handle.get_state_blocking("light.living_room");
+
+    // 6. Проверяем
+    assert!(result.is_some(), "Сущность должна быть найдена");
+    let entity = result.unwrap();
+    assert_eq!(entity.id, "light.living_room");
+    assert_eq!(entity.friendly_name, "Люстра в зале");
+}
+
+
+--- ./crates/ent_ctl/Cargo.toml ---
+[package]
+name = "ent_ctl"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+cfg = { path = "../cfg" }
+ent_core = { path = "../ent_core" }
+ent_mqtt = { path = "../ent_mqtt" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+
+--- ./crates/ent_ctl/src/main.rs ---
+use std::println;
+
+use cfg::Config;
+use ent_core::EntityManager;
+use ent_mqtt::{MqttBridge, mqtt_entities_from_config};
+
+#[tokio::main]
+async fn main() {
+    println!("Запуск entcore...");
+
+    // 1. Читаем конфиг
+    let config = Config::load_config("config.toml").expect("Не удалось загрузить конфиг");
+    println!("✅ Конфиг загружен");
+
+    // 2. Создаём EntityManager
+    let handle = EntityManager::spawn();
+    println!("✅ EntityManager запущен");
+
+    // 3. Конвертируем MQTT-сущности и Регистрируем их
+    let mqtt_entities = mqtt_entities_from_config(&config.mqtt);
+    println!("📦 Создано {} MQTT-сущностей", mqtt_entities.len());
+    for entity in mqtt_entities {
+        handle.register(entity);
+    }
+
+    println!("⏳ Ожидание обработки регистраций в EntityManager...");
+    handle
+        .wait_ready()
+        .await
+        .expect("Не удалось дождаться инициализации EntityManager");
+    println!("✅ EntityManager полностью инициализирован!");
+
+    // 5. Проверяем: читаем одну сущность
+    if let Some(entity) = handle.get_state("light.living_room").await {
+        println!("✅ Прочитана: {} = {:?}", entity.id, entity.state);
+    } else {
+        eprintln!("⚠️ Сущность 'light.living_room' не найдена");
+    }
+
+    // 6. MQTT bridge
+    let integrations = &config.integrations;
+    let mqtt_config = integrations
+        .mqtt
+        .as_ref()
+        .expect("Секция [integrations.mqtt] обязательна");
+
+    let mqtt_bridge = MqttBridge::new(mqtt_config, &config.mqtt, handle.clone());
+    println!("✅ MqttBridge создан");
+
+    //подписка на топики выполняется  в методе bridge.run()!!!!
+    //  // 7. Подписка на один топик для теста (потом — на все)
+    //  bridge.subscribe("/devices/wb-msw-v4_220/controls/Current Motion").await.expect("Не удалось подписаться");
+    //  println!("✅ Подписка выполнена");
+
+    // 8. Запускаем bridge в фоне + подписываемся на топики, main ждёт
+    let bridge_handle = tokio::spawn(async move {
+        mqtt_bridge.run().await;
+    });
+
+    println!("📡 MQTT bridge запущен. Ждём 5 секунд...");
+    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+    // 9. Завершаемся
+    println!("Завершение.");
+    bridge_handle.abort();
+}
+
+
+--- ./crates/ent_lua/Cargo.toml ---
+[package]
+name = "ent_lua"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+mlua = { version = "0.12", features = ["lua54", "vendored", "macros"] }
+ent_core = { path = "../ent_core" }
+
+[dev-dependencies]
+cfg = { path = "../cfg" }
+
+--- ./crates/ent_lua/examples/scripts.rs ---
+use cfg::Config;
+use std::fs;
+use std::io;
+use std::path::{Path, PathBuf};
+
+//let script_source =  //исходный код скрипта (строка)
+
+fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    println!("Hello!!!");
+    // let mut scripts: HashMap<String, Script> = HashMap::new();
+    let mut scripts: Vec<Script> = Vec::new();
+
+    let dir: PathBuf = {
+        let cfg: Config = Config::load_config("config.toml")?;
+        PathBuf::from(&cfg.system.scripts_directory)
+    };
+
+    let script_paths: Vec<PathBuf> = collect_lua_files(dir)?;
+    for script in script_paths {
+        let name: String = script
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let source = fs::read_to_string(&script)?;
+        // scripts.insert(name.clone(), Script { name: name.clone(), path: script, source_code: source });
+        scripts.push(Script {
+            name: name,
+            path: script,
+            source_code: source,
+        });
+    }
+
+    println!("{:?}", scripts);
+
+    Ok(())
+}
+
+fn collect_lua_files(dir: impl AsRef<Path>) -> io::Result<Vec<PathBuf>> {
+    let mut result: Vec<PathBuf> = Vec::new();
+
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        let ft = entry.file_type()?;
+        match (path.extension(), ft.is_file()) {
+            (Some(ext), true) if ext == "lua" => {
+                result.push(path);
+            }
+            _ => {}
+        }
+    }
+    Ok(result)
+}
+
+#[derive(Debug)]
+pub struct Script {
+    pub name: String,
+    pub path: PathBuf,
+    pub source_code: String,
+}
+
+impl Script {
+    pub fn new(name: String, path: PathBuf, source_code: String) -> Self {
+        Self {
+            name,
+            path,
+            source_code,
+        }
+    }
+}
+
+
+--- ./crates/ent_lua/examples/test_lua.rs ---
+use ent_core::{Entity, EntityManager, EntityState, LightState, SensorState};
+use ent_lua::AutomationEvent;
+use ent_lua::runner::ScriptRunner;
+use std::time::Duration;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = "D://Rust//projects//entcore//scripts"; // из конфига
+    let handle = EntityManager::spawn();
+
+    handle.register(Entity {
+        id: "light.kitchen".to_string(),
+        friendly_name: "Кухня".to_string(),
+        state: EntityState::Light(LightState {
+            is_on: true,
+            brightness: Some(200),
+            color_temp: None,
+        }),
+    });
+
+    handle.register(Entity {
+        id: "sensor.kitchen_motion".to_string(),
+        friendly_name: "Движение кухня".to_string(),
+        state: EntityState::Sensor(SensorState { value: 0.0 }),
+    });
+
+    std::thread::sleep(Duration::from_millis(50)); // ← дать менеджеру обработать
+    let runner = ScriptRunner::spawn(dir, handle);
+
+    // подождать, пока загрузится (пока — sleep)
+    std::thread::sleep(Duration::from_millis(500));
+
+    // runner.notify_changed(AutomationEvent {
+    //     entity_id: "light.kitchen".into(),
+    //     value: 42.0,
+    // });
+
+    runner.notify_changed(AutomationEvent {
+        entity_id: "sensor.kitchen_motion".into(),
+        value: 1.0,
+    });
+
+    std::thread::sleep(Duration::from_millis(500));
+    runner.shutdown();
+
+    Ok(())
+}
+
+
+--- ./crates/ent_lua/src/lib.rs ---
+//! ent_lua — движок скриптов автоматизации на Lua.
+pub mod runner;
+pub mod script_engine;
+pub mod source;
+
+pub use script_engine::{AutomationEvent, ScriptEngine};
+
+
+--- ./crates/ent_lua/src/runner.rs ---
+use crate::ScriptEngine;
+use crate::script_engine::AutomationEvent;
+use ent_core::handle::EntityHandle;
+use ent_core::manager::EntityManager;
+use ent_core::state_filed_kind::StateKind;
+use std::collections::HashMap;
+use std::path::Path;
+use std::sync::mpsc;
+
+pub enum ScriptRunnerMessage {
+    EntityChanged(AutomationEvent),
+    StateKind((String, StateKind)),
+    Shutdown,
+}
+
+pub struct ScriptRunnerHandle {
+    tx: mpsc::Sender<ScriptRunnerMessage>,
+}
+
+impl ScriptRunnerHandle {
+    pub fn notify_changed(&self, event: AutomationEvent) {
+        let _ = self.tx.send(ScriptRunnerMessage::EntityChanged(event));
+    }
+    pub fn shutdown(&self) {
+        let _ = self.tx.send(ScriptRunnerMessage::Shutdown);
+    }
+}
+
+pub struct ScriptRunner;
+
+impl ScriptRunner {
+    pub fn spawn(
+        scripts_dir: impl AsRef<Path> + Send + 'static,
+        tx_handle: EntityHandle,
+    ) -> ScriptRunnerHandle {
+        let (tx, rx) = mpsc::channel();
+
+        std::thread::Builder::new()
+            .name("script-runner".into())
+            .spawn(move || {
+                // let mut engine = ScriptEngine::new().expect(r"ошибка в crates\ent_lua\src\runner.rs - fn spawn");
+                let (mut engine, receiver) = ScriptEngine::new(tx_handle)
+                    .expect(r"ошибка в crates\ent_lua\src\runner.rs - fn spawn");
+                engine
+                    .register_log()
+                    .expect(r"ошибка в crates\ent_lua\src\runner.rs - fn spawn");
+                engine
+                    .registr_entity_id()
+                    .expect(r"ошибка в crates\ent_lua\src\runner.rs - fn spawn");
+                engine
+                    .get_state()
+                    .expect(r"ошибка в crates\ent_lua\src\runner.rs - fn spawn");
+                engine
+                    .load_scripts(scripts_dir, receiver)
+                    .expect(r"ошибка в crates\ent_lua\src\runner.rs - fn spawn");
+
+                loop {
+                    match rx.recv() {
+                        Ok(ScriptRunnerMessage::EntityChanged(event)) => {
+                            let _ = engine.call_functions(event);
+                        }
+                        Ok(ScriptRunnerMessage::StateKind((k, v))) => {
+                            engine.state_kind.map.insert(k, v);
+                        }
+                        Ok(ScriptRunnerMessage::Shutdown) => break,
+                        Err(e) => {
+                            println!("Канал закрыт: {}", e);
+                            break;
+                        }
+                    }
+                }
+            })
+            .expect(r"ошибка в crates\ent_lua\src\runner.rs - fn spawn");
+        ScriptRunnerHandle { tx }
+    }
+}
+
+
+--- ./crates/ent_lua/src/script_engine.rs ---
+use crate::source;
+use ent_core::EntityManager;
+use ent_core::state::SensorState;
+use ent_core::state_filed_kind::StateFiledKind;
+use ent_core::{EntityState, LightState, handle::EntityHandle};
+use mlua::{Function, Lua, UserData};
+use std::{
+    collections::HashMap,
+    path::Path,
+    println,
+    sync::mpsc::{self, Receiver},
+    time::Duration,
+};
+
+#[derive(UserData, Clone)]
+pub struct AutomationEvent {
+    pub entity_id: String,
+    pub value: f64,
+}
+
+pub struct ScriptEngine {
+    pub lua: Lua,
+    pub functions: Vec<Function>,
+    pub subscriptions: HashMap<String, Vec<usize>>, // entity_id -> Vec<usize>> где usize это номер элемента вектора в  pub functions: Vec<Function>,
+    pub tx: mpsc::Sender<Vec<String>>,
+    pub tx_handle: EntityHandle,
+    pub state_kind: StateFiledKind,
+}
+
+impl ScriptEngine {
+    pub fn new(
+        tx_handle: EntityHandle,
+    ) -> Result<(Self, mpsc::Receiver<Vec<String>>), mlua::Error> {
+        let lua = Lua::new();
+        let (tx, rx) = mpsc::channel();
+        let state_kind = StateFiledKind::new();
+        Ok((
+            Self {
+                lua,
+                functions: Vec::new(),
+                subscriptions: HashMap::new(),
+                tx,
+                tx_handle,
+                state_kind,
+            },
+            rx,
+        ))
+    }
+
+    pub fn load_scripts(
+        &mut self,
+        dir: impl AsRef<Path>,
+        rx: Receiver<Vec<String>>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let scripts: Vec<source::Script> = source::load_scripts(dir)?;
+        for script in scripts {
+            let func: Function = self
+                .lua
+                .load(&script.source_code)
+                .set_name(&script.name) // ← полезно для ошибок
+                .eval()?;
+            let num = self.functions.len();
+            match rx.recv_timeout(Duration::from_millis(500)) {
+                Ok(ids) => {
+                    for id in ids {
+                        self.subscriptions.entry(id).or_default().push(num);
+                    }
+                }
+                Err(e) => {
+                    println!(
+                        "Ошибка ({}) вызова функции registr_entity_id в скрипте {}",
+                        e, script.name
+                    );
+                    continue;
+                }
+            }
+            self.functions.push(func);
+        }
+        Ok(())
+    }
+
+    pub fn call_all_functions(&self, event: AutomationEvent) -> Result<(), mlua::Error> {
+        for f in &self.functions {
+            f.call::<()>(event.clone())?;
+        }
+        Ok(())
+    }
+    pub fn call_functions(&self, event: AutomationEvent) -> Result<(), mlua::Error> {
+        let functions = self.subscriptions.get(&event.entity_id);
+        match functions {
+            Some(functions) => {
+                for &f in functions {
+                    self.functions[f].call::<()>(event.clone())?;
+                }
+            }
+            None => {
+                println!("Скрипты не подписаны на сущность {}", &event.entity_id)
+            }
+        }
+        Ok(())
+    }
+
+    pub fn register_log(&self) -> Result<(), mlua::Error> {
+        let log_fn = self.lua.create_function(|_, msg: String| {
+            println!("[Lua] {}", msg);
+            Ok(())
+        })?;
+        self.lua.globals().set("log", log_fn)?;
+        Ok(())
+    }
+
+    pub fn registr_entity_id(&self) -> Result<(), mlua::Error> {
+        let tx = self.tx.clone();
+        let f = self.lua.create_function(move |_, ids: Vec<String>| {
+            tx.send(ids).unwrap();
+            Ok(())
+        })?;
+        self.lua.globals().set("registr_entity_id", f)?;
+        Ok(())
+    }
+
+    pub fn get_state(&self) -> Result<(), mlua::Error> {
+        let handle = self.tx_handle.clone();
+        let lua = self.lua.clone();
+        let f = self.lua.create_function(move |_, entity_id: String| {
+            match handle.get_state_blocking(&entity_id) {
+                Some(e) => match e.state {
+                    EntityState::Light(l) => Ok(mlua::Value::UserData(lua.create_userdata(l)?)),
+                    EntityState::Sensor(s) => Ok(mlua::Value::Number(s.value)),
+                    EntityState::BinarySensor(b) => Ok(mlua::Value::Boolean(b.is_on)),
+                    EntityState::InputBoolean(i) => Ok(mlua::Value::Boolean(i.is_on)),
+                    EntityState::Counter(c) => Ok(mlua::Value::Number(c.value as f64)),
+                },
+                None => Ok(mlua::Value::Nil),
+            }
+        })?;
+        self.lua.globals().set("get_state", f)?;
+        Ok(())
+    }
+
+    // pub set_state
+}
+
+
+--- ./crates/ent_lua/src/source.rs ---
+use std::fs;
+use std::io;
+use std::path::{Path, PathBuf};
+
+#[derive(Debug)]
+pub struct Script {
+    pub name: String,
+    pub path: PathBuf,
+    pub source_code: String,
+}
+
+pub fn load_scripts(dir: impl AsRef<Path>) -> io::Result<Vec<Script>> {
+    let mut scripts: Vec<Script> = Vec::new();
+
+    let script_paths: Vec<PathBuf> = collect_lua_files(dir)?;
+
+    for script in script_paths {
+        let name: String = script
+            .file_stem()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| script.to_string_lossy().into_owned());
+        let source = fs::read_to_string(&script)?;
+        scripts.push(Script {
+            name: name,
+            path: script,
+            source_code: source,
+        });
+    }
+    Ok(scripts)
+}
+
+fn collect_lua_files(dir: impl AsRef<Path>) -> io::Result<Vec<PathBuf>> {
+    let mut result: Vec<PathBuf> = Vec::new();
+
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        let ft = entry.file_type()?;
+        match (path.extension(), ft.is_file()) {
+            (Some(ext), true) if ext == "lua" => {
+                result.push(path);
+            }
+            _ => {}
+        }
+    }
+    Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_load_scripts() {
+        let dir = "D:\\Rust\\projects\\entcore\\rune_scripts".to_string();
+        let scripts = load_scripts(dir).expect("Должно прочитаться");
+        println!("📜 Загружено {} скриптов", scripts.len());
+        assert!(!scripts.is_empty());
+    }
+}
+
+
+--- ./crates/ent_mqtt/Cargo.toml ---
+[package]
+name = "ent_mqtt"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+cfg = { path = "../cfg" }
+ent_core = { path = "../ent_core" }
+rumqttc = "0.24"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+
+
+
+--- ./crates/ent_mqtt/examples/publisher.rs ---
+// ent_mqtt/examples/publisher.rs
+use rumqttc::{AsyncClient, MqttOptions, QoS};
+use std::time::Duration;
+
+#[tokio::main]
+async fn main() {
+    let mut options = MqttOptions::new("test-pub", "localhost", 1883);
+    options.set_keep_alive(Duration::from_secs(5));
+    let (client, mut eventloop) = AsyncClient::new(options, 10);
+
+    // Крутим eventloop в фоне
+    tokio::spawn(async move {
+        loop {
+            let _ = eventloop.poll().await;
+        }
+    });
+
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    client
+        .publish(
+            "/devices/wb-msw-v4_220/controls/Current Motion",
+            QoS::AtLeastOnce,
+            true,
+            "1",
+        )
+        .await
+        .unwrap();
+
+    println!("📤 Опубликовано");
+    tokio::time::sleep(Duration::from_millis(500)).await;
+}
+
+
+--- ./crates/ent_mqtt/src/bridge.rs ---
+use std::println;
+use std::time::Duration;
+
+// use cfg::Mqtt;
+use rumqttc::{AsyncClient, Event, Incoming, MqttOptions, QoS};
+
+use ent_core::{EntityHandle, UpdateSource};
+
+use cfg::{Mqtt, MqttBroker};
+// use crate::converter::{Topics, mqtt_from_config};
+
+use crate::converter::{TopicKind, Topics, mqtt_from_config};
+
+use ent_core::FieldUpdate;
+
+// use ent_core::UpdateSource;
+// use ent_core::EntityHandle;
+
+pub struct MqttBridge {
+    client: AsyncClient,
+    eventloop: rumqttc::EventLoop,
+    topics: Topics,
+    // tx: EntityHandle,
+    handle: EntityHandle,
+}
+
+impl MqttBridge {
+    pub fn new(broker: &MqttBroker, mqtt: &Mqtt, handle: EntityHandle) -> Self {
+        let mut options = MqttOptions::new("entcore", &broker.host, broker.port);
+        options.set_keep_alive(Duration::from_secs(5));
+
+        let (client, eventloop) = AsyncClient::new(options, 50);
+
+        let topics = mqtt_from_config(mqtt);
+
+        Self {
+            client,
+            eventloop,
+            topics,
+            handle,
+        }
+    }
+
+    pub async fn run(mut self) {
+        let mut subscribe: Vec<String> = Vec::new();
+        loop {
+            match self.eventloop.poll().await {
+                Ok(Event::Incoming(Incoming::Publish(p))) => {
+                    let payload = String::from_utf8_lossy(&p.payload);
+                    if let Some(mapping) = self.topics.state_topic.get(&p.topic) {
+                        let field = match mapping.kind {
+                            TopicKind::LightIsOn => {
+                                let v = payload == "1" || payload == "true" || payload == "ON";
+                                FieldUpdate::IsOn(v)
+                            }
+                            TopicKind::LightBrightness => {
+                                FieldUpdate::Brightness(payload.parse().ok())
+                            }
+                            TopicKind::LightColorTemp => {
+                                FieldUpdate::ColorTemp(payload.parse().ok())
+                            }
+                            TopicKind::SensorValue => {
+                                FieldUpdate::Value(payload.parse().unwrap_or(0.0))
+                            }
+                        };
+                        self.handle.update_field(
+                            mapping.entity_id.clone(),
+                            field,
+                            UpdateSource::Mqtt,
+                        );
+                    }
+                }
+                Ok(Event::Incoming(Incoming::ConnAck(_))) => {
+                    println!("✅ MQTT: ConnAck подключено к брокеру");
+                    subscribe.clear();
+                    for topic in self.topics.state_topic.keys() {
+                        let t = topic.to_string();
+                        println!("Топик {} добавлен в вектор", &t);
+                        subscribe.push(t);
+                    }
+                    if let Some(x) = subscribe.pop() {
+                        println!("Подписываемся на топик {}", &x);
+                        let _ = self.client.subscribe(x, QoS::AtLeastOnce).await;
+                    }
+                }
+                Ok(Event::Incoming(Incoming::SubAck(s))) => {
+                    println!("✅ MQTT: SubAck подтверждение от брокера {:?}", s);
+                    if let Some(x) = subscribe.pop() {
+                        println!("Подписываемся на топик {}", &x);
+                        let _ = self.client.subscribe(x, QoS::AtLeastOnce).await;
+                    }
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    eprintln!("⚠️ MQTT ошибка: {}", e);
+                    // при ошибке — пауза, чтобы не спамить
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                }
+            }
+        }
+    }
+}
+
+
+--- ./crates/ent_mqtt/src/converter.rs ---
+use cfg::Mqtt;
+use ent_core::{Entity, EntityState, LightState, SensorState};
+use std::collections::HashMap;
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum TopicKind {
+    LightIsOn,
+    LightBrightness,
+    LightColorTemp,
+    SensorValue,
+}
+
+#[derive(Debug, Clone)]
+pub struct FieldMapping {
+    pub entity_id: String,
+    pub kind: TopicKind,
+}
+pub struct Topics {
+    pub state_topic: HashMap<String, FieldMapping>, // topic → mapping
+}
+
+//-> Vec<Entity>
+pub fn mqtt_entities_from_config(mqtt: &Mqtt) -> Vec<Entity> {
+    let mut entities: Vec<Entity> = Vec::new();
+
+    for item in &mqtt.light {
+        let entity = Entity {
+            id: item.entity_id.clone(),
+            friendly_name: item.name.clone(),
+            state: EntityState::Light(LightState {
+                is_on: false,
+                brightness: None,
+                color_temp: None,
+            }),
+        };
+        entities.push(entity);
+    }
+
+    for item in &mqtt.sensor {
+        let entity = Entity {
+            id: item.entity_id.clone(),
+            friendly_name: item.name.clone(),
+            state: EntityState::Sensor(SensorState { value: 0.0 }),
+        };
+        entities.push(entity);
+    }
+
+    entities
+}
+
+pub fn mqtt_from_config(mqtt: &Mqtt) -> Topics {
+    let mut topics = Topics {
+        state_topic: HashMap::new(),
+    };
+
+    for light in &mqtt.light {
+        topics.state_topic.insert(
+            light.state_topic.clone(),
+            FieldMapping {
+                entity_id: light.entity_id.clone(),
+                kind: TopicKind::LightIsOn,
+            },
+        );
+        if let Some(topic) = &light.brightness_state_topic {
+            topics.state_topic.insert(
+                topic.clone(),
+                FieldMapping {
+                    entity_id: light.entity_id.clone(),
+                    kind: TopicKind::LightBrightness,
+                },
+            );
+        }
+        if let Some(topic) = &light.color_temp_state_topic {
+            topics.state_topic.insert(
+                topic.clone(),
+                FieldMapping {
+                    entity_id: light.entity_id.clone(),
+                    kind: TopicKind::LightColorTemp,
+                },
+            );
+        }
+    }
+
+    for sensor in &mqtt.sensor {
+        topics.state_topic.insert(
+            sensor.state_topic.clone(),
+            FieldMapping {
+                entity_id: sensor.entity_id.clone(),
+                kind: TopicKind::SensorValue,
+            },
+        );
+    }
+
+    topics
+}
+
+// mqtt: Mqtt {
+//         light: [
+//             MqttLight {
+//                 entity_id: "light.living_room",
+//                 name: "люстра в зале",
+//                 state_topic: "/devices/wb-mr6cv3_189/controls/K2",
+//                 command_topic: "/devices/wb-mr6cv3_189/controls/K2/on",
+//                 brightness_state_topic: "/devices/wb-mr6cv3_189/controls/Brightness",
+//                 brightness_command_topic: "/devices/wb-mr6cv3_189/controls/Brightness/on",
+//                 brightness_scale: 254,
+//             },
+//         ],
+//         sensor: [
+//             MqttSensor {
+//                 entity_id: "sensor.kitchen_motion",
+//                 name: "датчик движения кухня",
+//                 state_topic: "/devices/wb-msw-v4_220/controls/Current Motion",
+//             },
+//             MqttSensor {
+//                 entity_id: "sensor.kitchen_illuminance",
+//                 name: "датчик освещенности кухня",
+//                 state_topic: "/devices/wb-msw-v4_200/controls/Illuminance",
+//             },
+//         ],
+//     },
+
+
+--- ./crates/ent_mqtt/src/lib.rs ---
+pub mod bridge;
+pub mod converter;
+
+pub use bridge::MqttBridge;
+pub use converter::mqtt_entities_from_config;
+
+
+--- ./NOTES.md ---
+
