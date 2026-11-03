@@ -1,7 +1,7 @@
 use crate::entity::Entity;
 use crate::state::{EntityState, FieldUpdate};
-use tokio::sync::oneshot;
 use crate::state_filed_kind::StateKind;
+use tokio::sync::oneshot;
 // use tokio::sync::mpsc;
 use std::sync::mpsc;
 
@@ -13,9 +13,7 @@ pub enum EntityMessage {
 
     /// Новый вариант: подождать, пока менеджер обработает все предыдущие сообщения.
     /// Ответ (сигнал готовности) вернется через oneshot-канал.
-    WaitReady {
-        reply: oneshot::Sender<()>,
-    },
+    WaitReady { reply: oneshot::Sender<()> },
 
     /// Обновить состояние сущности.
     UpdateState {
@@ -25,10 +23,10 @@ pub enum EntityMessage {
     },
 
     UpdateStateField {
-    entity_id: String,
-    field: FieldUpdate,
-    source: UpdateSource,
-},
+        entity_id: String,
+        field: FieldUpdate,
+        source: UpdateSource,
+    },
 
     /// Прочитать сущность по id. Ответ — через oneshot.
     GetState {
@@ -36,14 +34,14 @@ pub enum EntityMessage {
         reply: oneshot::Sender<Option<Entity>>,
     },
 
-
     /// Получить список всех сущностей. Для отладки и WebUI.
-    ListAll {
-        reply: oneshot::Sender<Vec<Entity>>,
-    },
+    ListAll { reply: oneshot::Sender<Vec<Entity>> },
 
     Subscribe {
-        reply: oneshot::Sender<(Vec<Entity>, tokio::sync::mpsc::UnboundedReceiver<Notification>)>,
+        reply: oneshot::Sender<(
+            Vec<Entity>,
+            tokio::sync::mpsc::UnboundedReceiver<Notification>,
+        )>,
     },
 
     /// Завершить работу актора.

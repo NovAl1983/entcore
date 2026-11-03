@@ -1,4 +1,3 @@
-
 use cfg::Mqtt;
 use ent_core::{Entity, EntityState, LightState, SensorState};
 use std::collections::HashMap;
@@ -17,9 +16,8 @@ pub struct FieldMapping {
     pub kind: TopicKind,
 }
 pub struct Topics {
-    pub state_topic: HashMap<String, FieldMapping>,   // topic → mapping
+    pub state_topic: HashMap<String, FieldMapping>, // topic → mapping
 }
-
 
 //-> Vec<Entity>
 pub fn mqtt_entities_from_config(mqtt: &Mqtt) -> Vec<Entity> {
@@ -29,32 +27,31 @@ pub fn mqtt_entities_from_config(mqtt: &Mqtt) -> Vec<Entity> {
         let entity = Entity {
             id: item.entity_id.clone(),
             friendly_name: item.name.clone(),
-            state: EntityState::Light(LightState { 
-                is_on: false, 
-                brightness: None, 
-                color_temp: None 
-            })
+            state: EntityState::Light(LightState {
+                is_on: false,
+                brightness: None,
+                color_temp: None,
+            }),
         };
-        entities.push(entity); 
+        entities.push(entity);
     }
 
     for item in &mqtt.sensor {
         let entity = Entity {
             id: item.entity_id.clone(),
             friendly_name: item.name.clone(),
-            state: EntityState::Sensor(SensorState{
-                value: 0.0
-            })
+            state: EntityState::Sensor(SensorState { value: 0.0 }),
         };
-        entities.push(entity); 
+        entities.push(entity);
     }
 
     entities
-
 }
 
 pub fn mqtt_from_config(mqtt: &Mqtt) -> Topics {
-    let mut topics = Topics { state_topic: HashMap::new() };
+    let mut topics = Topics {
+        state_topic: HashMap::new(),
+    };
 
     for light in &mqtt.light {
         topics.state_topic.insert(
@@ -96,9 +93,6 @@ pub fn mqtt_from_config(mqtt: &Mqtt) -> Topics {
 
     topics
 }
-
-
-
 
 // mqtt: Mqtt {
 //         light: [

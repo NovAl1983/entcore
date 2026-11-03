@@ -1,7 +1,5 @@
 use mlua::UserData;
 
-
-
 // Enum теперь — это просто чистый диспетчер, который объединяет эти структуры
 #[derive(Debug, Clone, PartialEq)]
 pub enum EntityState {
@@ -10,10 +8,7 @@ pub enum EntityState {
     BinarySensor(BinarySensorState),
     Counter(CounterState),
     InputBoolean(InputBooleanState),
-
 }
-
-
 
 // Каждая сущность теперь имеет свою независимую, чистую структуру данных
 
@@ -24,49 +19,25 @@ pub struct LightState {
     pub color_temp: Option<u16>,
 }
 
-
-
-
-
-
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct SensorState {
     pub value: f64,
 }
-
-
-
-
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BinarySensorState {
     pub is_on: bool,
 }
 
-
-
-
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct CounterState {
     pub value: u64,
 }
 
-
-
-
-
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct InputBooleanState {
     pub is_on: bool,
 }
-
-
-
-
-
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum FieldUpdate {
@@ -75,4 +46,3 @@ pub enum FieldUpdate {
     ColorTemp(Option<u16>),
     Value(f64),
 }
-
