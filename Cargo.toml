@@ -4,7 +4,8 @@ members = [
     "crates/cfg",
     "crates/ent_ctl",
     "crates/ent_mqtt",
-    "crates/ent_lua",
+    "crates/ent_lua", "crates/ent_router",
+    "crates/ent_router", 
     ]
 
 resolver = "2"

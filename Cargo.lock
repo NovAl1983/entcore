@@ -115,6 +115,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "ent_router"
+version = "0.1.0"
+dependencies = [
+ "ent_core",
+ "tokio",
+]
+
+[[package]]
 name = "equivalent"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
