@@ -61,6 +61,7 @@ pub struct Router {
     // Выходные каналы для обратной связи (наши «рельсы» к модулям)
     tx_to_core: UnboundedSender<SystemMessage>,
     tx_to_lua: UnboundedSender<SystemMessage>,
+    tx_to_mqtt: UnboundedSender<SystemMessage>,
 }
 
 impl Router {
@@ -68,6 +69,7 @@ impl Router {
     pub fn new(
         tx_to_core: UnboundedSender<SystemMessage>,
         tx_to_lua: UnboundedSender<SystemMessage>,
+        tx_to_mqtt: UnboundedSender<SystemMessage>,
     ) -> (Self, UnboundedSender<SystemMessage>) {
         // Создаем центральный входной канал (unbounded, чтобы не блокировать отправителей)
         let (tx_in, rx_in) = tokio::sync::mpsc::unbounded_channel();
@@ -77,6 +79,7 @@ impl Router {
             tx_in: tx_in.clone(),
             tx_to_core,
             tx_to_lua,
+            tx_to_mqtt,
         };
 
         // Возвращаем сам роутер и его входной tx_in, который main.rs раздаст всем
@@ -105,6 +108,8 @@ impl Router {
                     println!("[Роутер] Получен сигнал Shutdown. Останавливаем модули...");
                     let _ = self.tx_to_core.send(SystemMessage::Shutdown);
                     let _ = self.tx_to_lua.send(SystemMessage::Shutdown);
+                    // Когда появится логика в MQTT, раскомментируем строчку ниже:
+                    // let _ = self.tx_to_mqtt.send(SystemMessage::Shutdown);
                     break;
                 }
             }

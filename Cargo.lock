@@ -92,6 +92,7 @@ dependencies = [
  "cfg",
  "ent_core",
  "ent_mqtt",
+ "ent_router",
  "tokio",
 ]
 

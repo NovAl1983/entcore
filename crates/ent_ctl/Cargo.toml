@@ -7,4 +7,5 @@ edition = "2024"
 cfg = { path = "../cfg" }
 ent_core = { path = "../ent_core" }
 ent_mqtt = { path = "../ent_mqtt" }
+ent_router = { path = "../ent_router" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
