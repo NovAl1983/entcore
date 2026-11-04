@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 cfg = { path = "../cfg" }
+ent_types = { path = "../ent_types" }
 ent_core = { path = "../ent_core" }
 rumqttc = "0.24"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }

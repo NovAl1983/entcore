@@ -1,0 +1,10 @@
+[package]
+name = "ent_types"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# mlua нужна здесь, так как типы данных напрямую пробрасываются в Lua
+mlua = { version = "0.12", features = ["lua54", "vendored", "macros"] }
+# Для oneshot::Sender в SystemMessage
+tokio = { version = "1", features = ["sync"] } 

@@ -5,4 +5,4 @@ edition = "2024"
 
 [dependencies]
 tokio = { version = "1", features = ["sync"] }
-ent_core = { path = "../ent_core" }
+ent_types = { path = "../ent_types" }

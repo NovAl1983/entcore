@@ -1,5 +1,5 @@
 use cfg::Mqtt;
-use ent_core::{Entity, EntityState, LightState, SensorState};
+use ent_types::{Entity, EntityState, LightState, SensorState};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

@@ -1,10 +1,10 @@
+// ./crates/ent_core/src/manager.rs
 use std::collections::HashMap;
-use std::{println, thread};
+use std::{println, thread, eprintln};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
-use crate::entity::Entity;
-use crate::state_filed_kind::StateKind;
-use ent_router::SystemMessage;
+// Импортируем всё необходимое из единого центра типов
+use ent_types::{SystemMessage, Entity, EntityState, FieldUpdate};
 
 pub struct EntityManager {
     // приемник от Роутера
@@ -65,26 +65,26 @@ impl EntityManager {
                 // 2. ОБНОВЛЕНИЕ КОНКРЕТНОГО ПОЛЯ
                 SystemMessage::UpdateEntityField { entity_id, field, source } => {
                     if let Some(entity) = self.entities.get_mut(&entity_id) {
-                        use crate::state::{EntityState, FieldUpdate::*};
+                        // use crate::state::{EntityState, FieldUpdate::*};
                         
                         // Вычисляем, изменилось ли значение на самом деле (защита от дедупликации)
                         let changed = match (&mut entity.state, field) {
-                            (EntityState::Light(light), IsOn(v)) => {
+                            (EntityState::Light(light), FieldUpdate::IsOn(v)) => {
                                 let old = light.is_on; light.is_on = v; old != v
                             }
-                            (EntityState::Light(light), Brightness(v)) => {
+                            (EntityState::Light(light), FieldUpdate::Brightness(v)) => {
                                 let old = light.brightness; light.brightness = v; old != v
                             }
-                            (EntityState::Light(light), ColorTemp(v)) => {
+                            (EntityState::Light(light), FieldUpdate::ColorTemp(v)) => {
                                 let old = light.color_temp; light.color_temp = v; old != v
                             }
-                            (EntityState::Sensor(sensor), Value(v)) => {
+                            (EntityState::Sensor(sensor), FieldUpdate::Value(v)) => {
                                 let old = sensor.value; sensor.value = v; old != v
                             }
-                            (EntityState::BinarySensor(binary), IsOn(v)) => {
+                            (EntityState::BinarySensor(binary), FieldUpdate::IsOn(v)) => {
                                 let old = binary.is_on; binary.is_on = v; old != v
                             }
-                            (EntityState::InputBoolean(input_bool), IsOn(v)) => {
+                            (EntityState::InputBoolean(input_bool), FieldUpdate::IsOn(v)) => {
                                 let old = input_bool.is_on; input_bool.is_on = v; old != v
                             }
                             _ => {

@@ -1,31 +1,22 @@
 use std::println;
 use std::time::Duration;
-
-// use cfg::Mqtt;
+use tokio::sync::mpsc::UnboundedSender;
 use rumqttc::{AsyncClient, Event, Incoming, MqttOptions, QoS};
 
-use ent_core::{EntityHandle, UpdateSource};
-
 use cfg::{Mqtt, MqttBroker};
-// use crate::converter::{Topics, mqtt_from_config};
-
 use crate::converter::{TopicKind, Topics, mqtt_from_config};
 
-use ent_core::FieldUpdate;
-
-// use ent_core::UpdateSource;
-// use ent_core::EntityHandle;
+use ent_types::{SystemMessage, FieldUpdate, UpdateSource};
 
 pub struct MqttBridge {
     client: AsyncClient,
     eventloop: rumqttc::EventLoop,
     topics: Topics,
-    // tx: EntityHandle,
-    handle: EntityHandle,
+    tx_to_router: UnboundedSender<SystemMessage>,
 }
 
 impl MqttBridge {
-    pub fn new(broker: &MqttBroker, mqtt: &Mqtt, handle: EntityHandle) -> Self {
+    pub fn new(broker: &MqttBroker, mqtt: &Mqtt, tx_to_router: UnboundedSender<SystemMessage>) -> Self {
         let mut options = MqttOptions::new("entcore", &broker.host, broker.port);
         options.set_keep_alive(Duration::from_secs(5));
 
@@ -37,7 +28,7 @@ impl MqttBridge {
             client,
             eventloop,
             topics,
-            handle,
+            tx_to_router,
         }
     }
 
@@ -48,6 +39,7 @@ impl MqttBridge {
                 Ok(Event::Incoming(Incoming::Publish(p))) => {
                     let payload = String::from_utf8_lossy(&p.payload);
                     if let Some(mapping) = self.topics.state_topic.get(&p.topic) {
+                        // Парсим сырые данные из MQTT в наши типизированные FieldUpdate
                         let field = match mapping.kind {
                             TopicKind::LightIsOn => {
                                 let v = payload == "1" || payload == "true" || payload == "ON";
@@ -63,11 +55,19 @@ impl MqttBridge {
                                 FieldUpdate::Value(payload.parse().unwrap_or(0.0))
                             }
                         };
-                        self.handle.update_field(
-                            mapping.entity_id.clone(),
+                        // Создаем сообщение Роутеру!
+                        let msg = SystemMessage::UpdateEntityField {
+                            entity_id: mapping.entity_id.clone(),
                             field,
-                            UpdateSource::Mqtt,
-                        );
+                            source: UpdateSource::Mqtt,
+                        };
+
+                        // Отправляем на центральный Роутер. Если роутер упал, .is_err() это отловит.
+                        if self.tx_to_router.send(msg).is_err() {
+                            println!("⚠️ [MQTT Мост] Центральный роутер остановился. Выходим.");
+                            break;
+                        }
+
                     }
                 }
                 Ok(Event::Incoming(Incoming::ConnAck(_))) => {
