@@ -5,7 +5,9 @@ edition = "2024"
 
 [dependencies]
 cfg = { path = "../cfg" }
+ent_types = { path = "../ent_types" }
 ent_core = { path = "../ent_core" }
 ent_mqtt = { path = "../ent_mqtt" }
 ent_router = { path = "../ent_router" }
+ent_lua = { path = "../ent_lua" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }

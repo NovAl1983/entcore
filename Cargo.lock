@@ -92,8 +92,10 @@ version = "0.1.0"
 dependencies = [
  "cfg",
  "ent_core",
+ "ent_lua",
  "ent_mqtt",
  "ent_router",
+ "ent_types",
  "tokio",
 ]
 
@@ -103,7 +105,9 @@ version = "0.1.0"
 dependencies = [
  "cfg",
  "ent_core",
+ "ent_types",
  "mlua",
+ "tokio",
 ]
 
 [[package]]

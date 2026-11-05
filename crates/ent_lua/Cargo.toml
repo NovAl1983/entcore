@@ -6,6 +6,8 @@ edition = "2024"
 [dependencies]
 mlua = { version = "0.12", features = ["lua54", "vendored", "macros"] }
 ent_core = { path = "../ent_core" }
+ent_types = { path = "../ent_types" }
+tokio = { version = "1", features = ["sync"] }
 
 [dev-dependencies]
 cfg = { path = "../cfg" }

@@ -1,76 +1,65 @@
+// ./crates/ent_lua/src/runner.rs
 use crate::ScriptEngine;
 use crate::script_engine::AutomationEvent;
 use ent_core::handle::EntityHandle;
-use ent_core::manager::EntityManager;
-use ent_core::state_filed_kind::StateKind;
-use std::collections::HashMap;
+use ent_types::SystemMessage; // Работаем с единым типом сообщений
+use tokio::sync::mpsc::UnboundedReceiver;
 use std::path::Path;
-use std::sync::mpsc;
 
-pub enum ScriptRunnerMessage {
-    EntityChanged(AutomationEvent),
-    StateKind((String, StateKind)),
-    Shutdown,
-}
-
-pub struct ScriptRunnerHandle {
-    tx: mpsc::Sender<ScriptRunnerMessage>,
-}
-
-impl ScriptRunnerHandle {
-    pub fn notify_changed(&self, event: AutomationEvent) {
-        let _ = self.tx.send(ScriptRunnerMessage::EntityChanged(event));
-    }
-    pub fn shutdown(&self) {
-        let _ = self.tx.send(ScriptRunnerMessage::Shutdown);
-    }
-}
- 
 pub struct ScriptRunner;
 
 impl ScriptRunner {
+    /// Спавнит ScriptRunner в отдельном потоке ОС.
+    /// Он принимает rx_for_lua (рельсы от Роутера) и EntityHandle (для get_state из Lua).
     pub fn spawn(
         scripts_dir: impl AsRef<Path> + Send + 'static,
+        mut rx_for_lua: UnboundedReceiver<SystemMessage>,
         tx_handle: EntityHandle,
-    ) -> ScriptRunnerHandle {
-        let (tx, rx) = mpsc::channel();
-
+    ) {
         std::thread::Builder::new()
-            .name("script-runner".into())
+            .name("[entcore] script-runner".into())
             .spawn(move || {
-                // let mut engine = ScriptEngine::new().expect(r"ошибка в crates\ent_lua\src\runner.rs - fn spawn");
-                let (mut engine, receiver) = ScriptEngine::new(tx_handle)
-                    .expect(r"ошибка в crates\ent_lua\src\runner.rs - fn spawn");
-                engine
-                    .register_log()
-                    .expect(r"ошибка в crates\ent_lua\src\runner.rs - fn spawn");
-                engine
-                    .registr_entity_id()
-                    .expect(r"ошибка в crates\ent_lua\src\runner.rs - fn spawn");
-                engine
-                    .get_state()
-                    .expect(r"ошибка в crates\ent_lua\src\runner.rs - fn spawn");
-                engine
-                    .load_scripts(scripts_dir, receiver)
-                    .expect(r"ошибка в crates\ent_lua\src\runner.rs - fn spawn");
+                // Создаем локальный рантайм для чтения из асинхронного канала rx_for_lua
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("Не удалось запустить рантайм для ScriptRunner");
 
-                loop {
-                    match rx.recv() {
-                        Ok(ScriptRunnerMessage::EntityChanged(event)) => {
-                            let _ = engine.call_functions(event);
-                        }
-                        Ok(ScriptRunnerMessage::StateKind((k, v))) => {
-                            engine.state_kind.map.insert(k, v);
-                        }
-                        Ok(ScriptRunnerMessage::Shutdown) => break,
-                        Err(e) => {
-                            println!("Канал закрыт: {}", e);
-                            break;
+                rt.block_on(async {
+                    let (mut engine, receiver) = ScriptEngine::new(tx_handle)
+                        .expect("Ошибка инициализации ScriptEngine");
+                    
+                    engine.register_log().unwrap();
+                    engine.registr_entity_id().unwrap();
+                    engine.get_state().unwrap();
+                    
+                    engine.load_scripts(scripts_dir, receiver)
+                        .expect("Не удалось загрузить Lua скрипты");
+
+                    println!("[Lua] Движок автоматизации запущен и готов к событиям.");
+
+                    // Читаем сообщения, прилетающие от центрального Роутера
+                    while let Some(msg) = rx_for_lua.recv().await {
+                        match msg {
+                            // Роутер будит нас, если какая-то сущность изменилась!
+                            SystemMessage::EntityChangedEvent { entity_id } => {
+                                // Передаем событие в Lua. Пока передаем 0.0, 
+                                // так как Lua сам пойдет в get_state за нужными полями
+                                let event = AutomationEvent {
+                                    entity_id,
+                                    value: 0.0, 
+                                };
+                                let _ = engine.call_functions(event);
+                            }
+                            SystemMessage::Shutdown => {
+                                println!("[Lua] Получен сигнал Shutdown. Остановка скриптов...");
+                                break;
+                            }
+                            _ => {} // Все остальные сообщения Lua-движок игнорирует
                         }
                     }
-                }
+                });
             })
-            .expect(r"ошибка в crates\ent_lua\src\runner.rs - fn spawn");
-        ScriptRunnerHandle { tx }
+            .expect("Не удалось запустить поток ScriptRunner");
     }
 }

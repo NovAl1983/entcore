@@ -1,8 +1,7 @@
 use crate::source;
-use ent_core::EntityManager;
-use ent_core::state::SensorState;
 use ent_core::state_filed_kind::StateFiledKind;
-use ent_core::{EntityState, LightState, handle::EntityHandle};
+use ent_core::handle::EntityHandle;
+use ent_types::EntityState; 
 use mlua::{Function, Lua, UserData};
 use std::{
     collections::HashMap,

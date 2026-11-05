@@ -1,13 +1,8 @@
-use crate::Entity;
-use crate::EntityState;
+use ent_types::EntityState;
 use mlua::UserData;
 use std::collections::HashMap;
 
-use crate::{
-    EntityManager,
-    EntityState::{BinarySensor, Counter, InputBoolean, Light, Sensor},
-};
-// use crate::state::FiledKind;
+
 
 #[derive(Debug, Clone, PartialEq, UserData)]
 pub enum StateKind {
@@ -36,8 +31,6 @@ pub struct StateFiledKind {
 
 impl StateFiledKind {
     pub fn new() -> Self {
-        let map: HashMap<String, StateKind> = HashMap::new();
-
-        Self { map }
+        Self {map: HashMap::new() }
     }
 }

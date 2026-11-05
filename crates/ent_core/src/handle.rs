@@ -1,105 +1,55 @@
-use tokio::sync::mpsc;
 use tokio::sync::oneshot;
+use tokio::sync::mpsc::UnboundedSender;
+use ent_types::{SystemMessage, Entity};
 
-use crate::entity::Entity;
-use crate::message::{EntityMessage, Notification, UpdateSource};
-use crate::state::{EntityState, FieldUpdate};
+
 
 /// Пульт управления EntityManager.
 /// Клонируется, раздаётся модулям.
 #[derive(Clone)]
 pub struct EntityHandle {
-    tx: mpsc::UnboundedSender<EntityMessage>,
+    tx_to_router: UnboundedSender<SystemMessage>,
 }
 
 impl EntityHandle {
-    pub(crate) fn new(tx: mpsc::UnboundedSender<EntityMessage>) -> Self {
-        Self { tx }
+    pub fn new(tx_to_router: UnboundedSender<SystemMessage>) -> Self {
+        Self { tx_to_router }
     }
 
-    /// Зарегистрировать сущность. Fire-and-forget.
-    pub fn register(&self, entity: Entity) {
-        let _ = self.tx.send(EntityMessage::Register(entity));
+    /// Блокирующий метод для синхронного кода Lua.
+    /// Он отправляет запрос в Роутер и останавливает поток Lua до получения ответа от Ядра.
+    pub  fn get_state_blocking(&self, entity_id: &str) -> Option<Entity> {
+        // Создаем одноразовый канал для получения ответа
+        let (reply_tx, reply_rx) = oneshot::channel();
+
+        // Упаковываем запрос в сообщение для Роутера
+        let msg = SystemMessage::GetEntityState { 
+            entity_id: entity_id.to_string(), 
+            reply: reply_tx };
+
+        // Отправляем сообщение на центральный Роутер
+        if self.tx_to_router.send(msg).is_err() {
+            return None;
+        };
+
+        // БЛОКИРУЕМ текущий поток ОС (в котором крутится Lua) до тех пор,
+        // пока Ядро не пришлет нам ответ в reply_rx
+        reply_rx.blocking_recv().ok()?
     }
 
-    /// Обновить состояние. Fire-and-forget.
-    pub fn update_state(
-        &self,
-        entity_id: impl Into<String>,
-        new_state: EntityState,
-        source: UpdateSource,
-    ) {
-        let _ = self.tx.send(EntityMessage::UpdateState {
-            entity_id: entity_id.into(),
-            new_state,
-            source,
-        });
-    }
-    /// Обновить состояние конкретного поля сущности
-    pub fn update_field(
-        &self,
-        entity_id: impl Into<String>,
-        field: FieldUpdate,
-        source: UpdateSource,
-    ) {
-        let _ = self.tx.send(EntityMessage::UpdateStateField {
-            entity_id: entity_id.into(),
-            field,
-            source,
-        });
-    }
+    // // не блокирующий метод для async
+    // pub async fn get_state(&self, entity_id: &str) -> Option<Entity> {
+    //     let (tx, rx) = oneshot::channel();
+    //     self.tx
+    //         .send(EntityMessage::GetState {
+    //             entity_id: entity_id.to_string(),
+    //             reply: tx,
+    //         })
+    //         .ok()?;
+    //     rx.await.ok()?
+    // }
 
-    // блокирующий метод для сихронного кода
-    pub fn get_state_blocking(&self, entity_id: &str) -> Option<Entity> {
-        let (tx, rx) = oneshot::channel();
-        self.tx
-            .send(EntityMessage::GetState {
-                entity_id: entity_id.to_string(),
-                reply: tx,
-            })
-            .ok()?;
-        rx.blocking_recv().ok()?
-    }
 
-    // не блокирующий метод для async
-    pub async fn get_state(&self, entity_id: &str) -> Option<Entity> {
-        let (tx, rx) = oneshot::channel();
-        self.tx
-            .send(EntityMessage::GetState {
-                entity_id: entity_id.to_string(),
-                reply: tx,
-            })
-            .ok()?;
-        rx.await.ok()?
-    }
 
-    /// Подождать, пока менеджер обработает все текущие сообщения в очереди.
-    /// Этот метод асинхронный, его можно вызывать в async-контексте через .await
-    pub async fn wait_ready(&self) -> Result<(), String> {
-        let (tx, rx) = oneshot::channel();
 
-        // Отправляем сообщение в очередь менеджера
-        if self
-            .tx
-            .send(EntityMessage::WaitReady { reply: tx })
-            .is_err()
-        {
-            return Err("EntityManager уже остановлен".to_string());
-        }
-
-        // Ждем, пока менеджер обработает все сообщения перед нами и ответит в rx
-        rx.await
-            .map_err(|_| "Поток EntityManager аварийно завершился".to_string())
-    }
-
-    pub fn subscribe_blocking(
-        &self,
-    ) -> Option<(
-        Vec<Entity>,
-        tokio::sync::mpsc::UnboundedReceiver<Notification>,
-    )> {
-        let (tx, rx) = tokio::sync::oneshot::channel();
-        self.tx.send(EntityMessage::Subscribe { reply: tx }).ok()?;
-        rx.blocking_recv().ok()
-    }
 }
