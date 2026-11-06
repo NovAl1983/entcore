@@ -1,17 +1,17 @@
 // ./crates/ent_core/src/manager.rs
 use std::collections::HashMap;
-use std::{println, thread, eprintln};
+use std::{eprintln, println, thread};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 // Импортируем всё необходимое из единого центра типов
-use ent_types::{SystemMessage, Entity, EntityState, FieldUpdate};
+use ent_types::{Entity, EntityState, FieldUpdate, SystemMessage};
 
 pub struct EntityManager {
     // приемник от Роутера
     rx: UnboundedReceiver<SystemMessage>,
     // передатчик в Роутер (чтобы кричать о событиях)
     tx_to_router: UnboundedSender<SystemMessage>,
-    
+
     // внутренняя база данных сущностей
     pub entities: HashMap<String, Entity>,
 }
@@ -33,22 +33,16 @@ impl EntityManager {
         thread::Builder::new()
             .name("[entcore] entity-manager".into())
             .spawn(move || {
-                // Создаем локальный микро-рантайм Tokio для асинхронного цикла чтения
-                let rt = tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .expect("Не удалось запустить рантайм для EntityManager");
-
-                rt.block_on(manager.run());
+                manager.run();
             })
             .expect("Не удалось запустить поток EntityManager");
     }
 
     /// Главный асинхронный цикл обработки данных ядра
-    async fn run(&mut self) {
+    fn run(&mut self) {
         println!("[Ядро] Менеджер сущностей запущен.");
 
-        while let Some(msg) = self.rx.recv().await {
+        while let Some(msg) = self.rx.blocking_recv() {
             match msg {
                 // 1. РЕГИСТРАЦИЯ СУЩНОСТИ
                 SystemMessage::RegisterEntity(entity) => {
@@ -59,33 +53,51 @@ impl EntityManager {
                     }
 
                     self.entities.insert(id.clone(), entity);
+                    let event = SystemMessage::EntityChangedEvent { entity_id: id.clone() };
+                    let _ = self.tx_to_router.send(event);
                     println!("[Ядро] Сущность с id = {} успешно зарегистрирована", id);
                 }
 
                 // 2. ОБНОВЛЕНИЕ КОНКРЕТНОГО ПОЛЯ
-                SystemMessage::UpdateEntityField { entity_id, field, source } => {
+                SystemMessage::UpdateEntityField {
+                    entity_id,
+                    field,
+                    source,
+                } => {
                     if let Some(entity) = self.entities.get_mut(&entity_id) {
                         // use crate::state::{EntityState, FieldUpdate::*};
-                        
+
                         // Вычисляем, изменилось ли значение на самом деле (защита от дедупликации)
                         let changed = match (&mut entity.state, field) {
                             (EntityState::Light(light), FieldUpdate::IsOn(v)) => {
-                                let old = light.is_on; light.is_on = v; old != v
+                                let old = light.is_on;
+                                light.is_on = v;
+                                old != v
                             }
                             (EntityState::Light(light), FieldUpdate::Brightness(v)) => {
-                                let old = light.brightness; light.brightness = v; old != v
+                                let old = light.brightness;
+                                light.brightness = v;
+                                old != v
                             }
                             (EntityState::Light(light), FieldUpdate::ColorTemp(v)) => {
-                                let old = light.color_temp; light.color_temp = v; old != v
+                                let old = light.color_temp;
+                                light.color_temp = v;
+                                old != v
                             }
                             (EntityState::Sensor(sensor), FieldUpdate::Value(v)) => {
-                                let old = sensor.value; sensor.value = v; old != v
+                                let old = sensor.value;
+                                sensor.value = v;
+                                old != v
                             }
                             (EntityState::BinarySensor(binary), FieldUpdate::IsOn(v)) => {
-                                let old = binary.is_on; binary.is_on = v; old != v
+                                let old = binary.is_on;
+                                binary.is_on = v;
+                                old != v
                             }
                             (EntityState::InputBoolean(input_bool), FieldUpdate::IsOn(v)) => {
-                                let old = input_bool.is_on; input_bool.is_on = v; old != v
+                                let old = input_bool.is_on;
+                                input_bool.is_on = v;
+                                old != v
                             }
                             _ => {
                                 eprintln!("[Ядро] ⚠️ Несовместимое поле для '{}'", entity_id);
@@ -96,25 +108,27 @@ impl EntityManager {
                         // Если значение НЕ изменилось — срабатывает дедупликация и переходим к следующему сообщению.
                         if !changed {
                             // Значение то же самое, защитили систему от лишней работы!
-                            continue; 
+                            continue;
                         }
 
                         // Сюда код дойдет ТОЛЬКО если значение реально обновилось
                         println!("[Ядро] 🔄 '{}' обновлена (source: {:?})", entity_id, source);
-                        
+
                         // Отправляем "будильник" в Роутер для пробуждения Lua-скриптов
                         let event = SystemMessage::EntityChangedEvent {
                             entity_id: entity_id.clone(),
                         };
                         let _ = self.tx_to_router.send(event);
-
                     } else {
                         // Срабатывает, только если id сущности вообще нет в базе данных ядра!
-                        eprintln!("[Ядро] ⚠️ UpdateEntityField: неизвестная сущность '{}'", entity_id);
+                        eprintln!(
+                            "[Ядро] ⚠️ UpdateEntityField: неизвестная сущность '{}'",
+                            entity_id
+                        );
                     }
                 }
 
-                // 3. ОБРАБОТКА ЗАПРОСА СОСТОЯНИЯ 
+                // 3. ОБРАБОТКА ЗАПРОСА СОСТОЯНИЯ
                 SystemMessage::GetEntityState { entity_id, reply } => {
                     let entity_clone = self.entities.get(&entity_id).cloned();
                     // Отправляем ответ НАПРЯМУЮ в вложенный конверт (минуя Роутер)

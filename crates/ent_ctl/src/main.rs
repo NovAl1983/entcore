@@ -3,12 +3,12 @@ use std::thread;
 use tokio::sync::mpsc;
 
 use cfg::Config;
-use ent_types::SystemMessage;
-use ent_router::Router;
 use ent_core::EntityManager;
 use ent_core::handle::EntityHandle;
 use ent_lua::runner::ScriptRunner;
 use ent_mqtt::{MqttBridge, mqtt_entities_from_config};
+use ent_router::Router;
+use ent_types::SystemMessage;
 
 #[tokio::main]
 async fn main() {
@@ -49,9 +49,13 @@ async fn main() {
 
     // 6. Конвертируем MQTT-сущности из конфига и регистрируем их в Системе
     let mqtt_entities = mqtt_entities_from_config(&config.mqtt);
-    println!("📦 Обнаружено {} MQTT-сущностей в конфиге. Регистрируем...", mqtt_entities.len());
+    println!(
+        "📦 Обнаружено {} MQTT-сущностей в конфиге. Регистрируем...",
+        mqtt_entities.len()
+    );
     for entity in mqtt_entities {
-        tx_in.send(SystemMessage::RegisterEntity(entity))
+        tx_in
+            .send(SystemMessage::RegisterEntity(entity))
             .expect("Не удалось отправить команду регистрации сущности");
     }
 
@@ -68,7 +72,10 @@ async fn main() {
 
     // 9. Запуск MQTT-моста
     let integrations = &config.integrations;
-    let mqtt_config = integrations.mqtt.as_ref().expect("Секция [integrations.mqtt] обязательна");
+    let mqtt_config = integrations
+        .mqtt
+        .as_ref()
+        .expect("Секция [integrations.mqtt] обязательна");
 
     // Передаем мосту клон tx_in, чтобы он слал FieldUpdate сообщения на Роутер
     let mqtt_bridge = MqttBridge::new(mqtt_config, &config.mqtt, tx_in.clone());
@@ -78,15 +85,13 @@ async fn main() {
     });
     println!("✅ Мост MQTT запущен и подключается к брокеру.");
 
-
-
     // 10. Основной рабочий цикл ctl-модуля (MVP работает 10 секунд и изящно завершается)
     println!("\n📡 Система полностью активна и обрабатывает события. Ждем 10 секунд...");
     tokio::time::sleep(std::time::Duration::from_secs(10)).await;
 
     println!("\n🛑 Инициировано плановое завершение работы системы...");
     let _ = tx_in.send(SystemMessage::Shutdown);
-    
+
     // Микро-пауза, чтобы потоки успели напечатать логи закрытия
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     println!("=== [entcore] Работа завершена ===");

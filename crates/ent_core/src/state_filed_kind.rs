@@ -2,8 +2,6 @@ use ent_types::EntityState;
 use mlua::UserData;
 use std::collections::HashMap;
 
-
-
 #[derive(Debug, Clone, PartialEq, UserData)]
 pub enum StateKind {
     Light,
@@ -31,6 +29,8 @@ pub struct StateFiledKind {
 
 impl StateFiledKind {
     pub fn new() -> Self {
-        Self {map: HashMap::new() }
+        Self {
+            map: HashMap::new(),
+        }
     }
 }

@@ -1,8 +1,6 @@
-use tokio::sync::oneshot;
+use ent_types::{Entity, FieldUpdate, SystemMessage, UpdateSource};
 use tokio::sync::mpsc::UnboundedSender;
-use ent_types::{SystemMessage, Entity};
-
-
+use tokio::sync::oneshot;
 
 /// Пульт управления EntityManager.
 /// Клонируется, раздаётся модулям.
@@ -18,14 +16,15 @@ impl EntityHandle {
 
     /// Блокирующий метод для синхронного кода Lua.
     /// Он отправляет запрос в Роутер и останавливает поток Lua до получения ответа от Ядра.
-    pub  fn get_state_blocking(&self, entity_id: &str) -> Option<Entity> {
+    pub fn get_state_blocking(&self, entity_id: &str) -> Option<Entity> {
         // Создаем одноразовый канал для получения ответа
         let (reply_tx, reply_rx) = oneshot::channel();
 
         // Упаковываем запрос в сообщение для Роутера
-        let msg = SystemMessage::GetEntityState { 
-            entity_id: entity_id.to_string(), 
-            reply: reply_tx };
+        let msg = SystemMessage::GetEntityState {
+            entity_id: entity_id.to_string(),
+            reply: reply_tx,
+        };
 
         // Отправляем сообщение на центральный Роутер
         if self.tx_to_router.send(msg).is_err() {
@@ -49,7 +48,17 @@ impl EntityHandle {
     //     rx.await.ok()?
     // }
 
-
-
-
+    pub fn update_field(
+        &self,
+        entity_id: impl Into<String>,
+        field: FieldUpdate,
+        source: UpdateSource,
+    ) {
+        let msg = SystemMessage::UpdateEntityField {
+            entity_id: entity_id.into(),
+            field,
+            source,
+        };
+        let _ = self.tx_to_router.send(msg);
+    }
 }

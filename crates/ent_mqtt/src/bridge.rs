@@ -1,12 +1,12 @@
+use rumqttc::{AsyncClient, Event, Incoming, MqttOptions, QoS};
 use std::println;
 use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
-use rumqttc::{AsyncClient, Event, Incoming, MqttOptions, QoS};
 
-use cfg::{Mqtt, MqttBroker};
 use crate::converter::{TopicKind, Topics, mqtt_from_config};
+use cfg::{Mqtt, MqttBroker};
 
-use ent_types::{SystemMessage, FieldUpdate, UpdateSource};
+use ent_types::{FieldUpdate, SystemMessage, UpdateSource};
 
 pub struct MqttBridge {
     client: AsyncClient,
@@ -16,7 +16,11 @@ pub struct MqttBridge {
 }
 
 impl MqttBridge {
-    pub fn new(broker: &MqttBroker, mqtt: &Mqtt, tx_to_router: UnboundedSender<SystemMessage>) -> Self {
+    pub fn new(
+        broker: &MqttBroker,
+        mqtt: &Mqtt,
+        tx_to_router: UnboundedSender<SystemMessage>,
+    ) -> Self {
         let mut options = MqttOptions::new("entcore", &broker.host, broker.port);
         options.set_keep_alive(Duration::from_secs(5));
 
@@ -67,7 +71,6 @@ impl MqttBridge {
                             println!("⚠️ [MQTT Мост] Центральный роутер остановился. Выходим.");
                             break;
                         }
-
                     }
                 }
                 Ok(Event::Incoming(Incoming::ConnAck(_))) => {

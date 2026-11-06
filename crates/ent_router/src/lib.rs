@@ -31,12 +31,12 @@ impl Router {
 
     pub async fn run(mut self) {
         println!("[Роутер] Центральный маршрутизатор запущен.");
-        
+
         while let Some(msg) = self.rx_in.recv().await {
             match msg {
-                SystemMessage::RegisterEntity(_) 
-                | SystemMessage::UpdateEntityField { .. } 
-                | SystemMessage::GetEntityState { .. } => { 
+                SystemMessage::RegisterEntity(_)
+                | SystemMessage::UpdateEntityField { .. }
+                | SystemMessage::GetEntityState { .. } => {
                     let _ = self.tx_to_core.send(msg);
                 }
                 SystemMessage::EntityChangedEvent { .. } => {

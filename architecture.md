@@ -223,3 +223,17 @@ MqttBridge — tokio async (не std::thread).
   Сейчас: `expect` (паника в потоке).
   Надо: `match` + `log` + `return` (или `Result` в `ScriptRunnerHandle`).
   Почему: паника в потоке не видна `main`, пока тот не сделает `send`.
+
+  ### Принятые решения
+- **Роутер** — единая точка маршрутизации (`SystemMessage`).
+- **`EntityManager`** — синхронный актор, `blocking_recv`, без `rt`.
+- **`ScriptRunner`** — синхронный, `blocking_recv`, без `rt`.
+- **`EntityChangedEvent`** — только `entity_id`. Значение — через `get_state`.
+- **`UserData` для всех `*State`** — единообразно.
+- **`get_state`/`set_state`** — из Lua.
+
+### Открытые вопросы
+- [ ] `EntityChangedEvent` при `RegisterEntity` (сейчас нет).
+- [ ] Заполнение `state_kind` из snapshot (Шаг 6.2).
+- [ ] Таймеры как сущности (`timer.*`).
+- [ ] Виртуальные сущности (`filter`, `threshold`).

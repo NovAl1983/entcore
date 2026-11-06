@@ -31,22 +31,22 @@ pub struct LightState {
     pub color_temp: Option<u16>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, UserData)]
 pub struct SensorState {
     pub value: f64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, UserData)]
 pub struct BinarySensorState {
     pub is_on: bool,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, UserData)]
 pub struct CounterState {
     pub value: u64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, UserData)]
 pub struct InputBooleanState {
     pub is_on: bool,
 }
@@ -93,9 +93,7 @@ pub enum SystemMessage {
     },
 
     /// Сигнализирует движку скриптов, что состояние сущности изменилось.
-    EntityChangedEvent {
-        entity_id: String,
-    },
+    EntityChangedEvent { entity_id: String },
 
     /// Команда на плавную остановку всех фоновых потоков и тасок.
     Shutdown,

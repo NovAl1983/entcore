@@ -1,7 +1,7 @@
 use crate::source;
-use ent_core::state_filed_kind::StateFiledKind;
 use ent_core::handle::EntityHandle;
-use ent_types::EntityState; 
+use ent_core::state_filed_kind::StateFiledKind;
+use ent_types::{EntityState, FieldUpdate, UpdateSource};
 use mlua::{Function, Lua, UserData};
 use std::{
     collections::HashMap,
@@ -125,10 +125,10 @@ impl ScriptEngine {
             match handle.get_state_blocking(&entity_id) {
                 Some(e) => match e.state {
                     EntityState::Light(l) => Ok(mlua::Value::UserData(lua.create_userdata(l)?)),
-                    EntityState::Sensor(s) => Ok(mlua::Value::Number(s.value)),
-                    EntityState::BinarySensor(b) => Ok(mlua::Value::Boolean(b.is_on)),
-                    EntityState::InputBoolean(i) => Ok(mlua::Value::Boolean(i.is_on)),
-                    EntityState::Counter(c) => Ok(mlua::Value::Number(c.value as f64)),
+                    EntityState::Sensor(s) => Ok(mlua::Value::UserData(lua.create_userdata(s)?)),
+                    EntityState::BinarySensor(b) => Ok(mlua::Value::UserData(lua.create_userdata(b)?)),
+                    EntityState::InputBoolean(i) => Ok(mlua::Value::UserData(lua.create_userdata(i)?)),
+                    EntityState::Counter(c) => Ok(mlua::Value::UserData(lua.create_userdata(c)?)),
                 },
                 None => Ok(mlua::Value::Nil),
             }
@@ -137,5 +137,59 @@ impl ScriptEngine {
         Ok(())
     }
 
-    // pub set_state
+    pub fn set_state(&self) -> Result<(), mlua::Error> {
+        let handle = self.tx_handle.clone();
+        let f = self
+            .lua
+            .create_function(move |_, (entity_id, value): (String, mlua::Value)| {
+                match handle.get_state_blocking(&entity_id) {
+                    Some(entity) => match (entity.state, value) {
+                        (EntityState::Light(_), mlua::Value::Boolean(b)) => {
+                            handle.update_field(
+                                &entity_id,
+                                FieldUpdate::IsOn(b),
+                                UpdateSource::Script,
+                            );
+                        }
+                        (EntityState::Light(_), mlua::Value::Number(n)) => {
+                            handle.update_field(
+                                &entity_id,
+                                FieldUpdate::Brightness(Some(n as u8)),
+                                UpdateSource::Script,
+                            );
+                        }
+                        (EntityState::Sensor(_), mlua::Value::Number(n)) => {
+                            handle.update_field(
+                                &entity_id,
+                                FieldUpdate::Value(n),
+                                UpdateSource::Script,
+                            );
+                        }
+                        (EntityState::BinarySensor(_), mlua::Value::Boolean(b)) => {
+                            handle.update_field(
+                                &entity_id,
+                                FieldUpdate::IsOn(b),
+                                UpdateSource::Script,
+                            );
+                        }
+                        (EntityState::InputBoolean(_), mlua::Value::Boolean(b)) => {
+                            handle.update_field(
+                                &entity_id,
+                                FieldUpdate::IsOn(b),
+                                UpdateSource::Script,
+                            );
+                        }
+                        _ => {
+                            eprintln!("[Lua] set_state: несовместимый тип для '{}'", entity_id);
+                        }
+                    },
+                    None => {
+                        eprintln!("[Lua] set_state: сущность '{}' не найдена", entity_id);
+                    }
+                }
+                Ok(())
+            })?;
+        self.lua.globals().set("set_state", f)?;
+        Ok(())
+    }
 }
