@@ -62,6 +62,8 @@ async fn main() {
     // 7. Создаем EntityHandle для Lua, который смотрит на Роутер
     let lua_handle = EntityHandle::new(tx_in.clone());
 
+    //TODO нужно реализовать способ дожидаться пока все регистрации обработаются перед запуском ScriptRunner
+
     // 8. Запуск движка автоматизации Lua ScriptRunner
     ScriptRunner::spawn(
         config.system.scripts_directory.clone(),
