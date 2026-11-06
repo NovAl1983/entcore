@@ -1,6 +1,6 @@
-=== Дата: 2026-11-04 22:10:26 ===
+=== Дата: 2026-11-06 23:49:28 ===
 === ENTCORE Project ===
-=== Ветка: set ===
+=== Ветка: feature/mqtt-publish ===
 
 === СТРУКТУРА ПРОЕКТА ===
 ├── ./
@@ -21,6 +21,8 @@
     ├── src/
   ├── ent_router/
     ├── src/
+  ├── ent_types/
+    ├── src/
 ├── scripts/
 ├── target/
 
@@ -33,8 +35,9 @@ members = [
     "crates/cfg",
     "crates/ent_ctl",
     "crates/ent_mqtt",
-    "crates/ent_lua", "crates/ent_router",
+    "crates/ent_lua", 
     "crates/ent_router", 
+    "crates/ent_types", 
     ]
 
 resolver = "2"
@@ -316,197 +319,103 @@ edition = "2024"
 [dependencies]
 tokio = { version = "1", features = ["sync"] }
 mlua = { version = "0.12", features = ["lua54", "vendored", "macros"] }
-ent_router = { path = "../ent_router" }
-
---- ./crates/ent_core/src/entity.rs ---
-// use crate::state::{EntityState, LightState, SensorState, BinarySensorState, CounterState, InputBooleanState};
-use crate::state::EntityState;
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Entity {
-    pub id: String,
-    pub friendly_name: String,
-    pub state: EntityState,
-    // pub state_filed_kind: LightStateFiledKind,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_create_entity() {
-        // Было: state: EntityState::Light { is_on: false, brightness: None, color_temp: None }
-        // Стало:
-        use crate::state::{EntityState, LightState};
-
-        let e = Entity {
-            id: "light.living_room".to_string(),
-            friendly_name: "Люстра в зале".to_string(),
-            state: EntityState::Light(LightState {
-                is_on: false,
-                brightness: None,
-                color_temp: None,
-            }),
-            // state_filed_kind: LightStateFiledKind::new(),
-        };
-
-        assert_eq!(e.id, "light.living_room");
-        // assert_eq!(e.state, EntityState::Light {
-        //     is_on: false,
-        //     brightness: Some(128),
-        //     color_temp: None,
-        // });
-        assert_eq!(
-            e.state,
-            EntityState::Light(LightState {
-                is_on: false,
-                brightness: Some(128),
-                color_temp: None,
-            })
-        );
-    }
-}
-
+ent_types = { path = "../ent_types" }
 
 --- ./crates/ent_core/src/handle.rs ---
-use tokio::sync::mpsc;
+use ent_types::{Entity, FieldUpdate, SystemMessage, UpdateSource};
+use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::oneshot;
-
-use crate::entity::Entity;
-use crate::message::{EntityMessage, Notification, UpdateSource};
-use crate::state::{EntityState, FieldUpdate};
 
 /// Пульт управления EntityManager.
 /// Клонируется, раздаётся модулям.
 #[derive(Clone)]
 pub struct EntityHandle {
-    tx: mpsc::UnboundedSender<EntityMessage>,
+    tx_to_router: UnboundedSender<SystemMessage>,
 }
 
 impl EntityHandle {
-    pub(crate) fn new(tx: mpsc::UnboundedSender<EntityMessage>) -> Self {
-        Self { tx }
+    pub fn new(tx_to_router: UnboundedSender<SystemMessage>) -> Self {
+        Self { tx_to_router }
     }
 
-    /// Зарегистрировать сущность. Fire-and-forget.
-    pub fn register(&self, entity: Entity) {
-        let _ = self.tx.send(EntityMessage::Register(entity));
+    /// Блокирующий метод для синхронного кода Lua.
+    /// Он отправляет запрос в Роутер и останавливает поток Lua до получения ответа от Ядра.
+    pub fn get_state_blocking(&self, entity_id: &str) -> Option<Entity> {
+        // Создаем одноразовый канал для получения ответа
+        let (reply_tx, reply_rx) = oneshot::channel();
+
+        // Упаковываем запрос в сообщение для Роутера
+        let msg = SystemMessage::GetEntityState {
+            entity_id: entity_id.to_string(),
+            reply: reply_tx,
+        };
+
+        // Отправляем сообщение на центральный Роутер
+        if self.tx_to_router.send(msg).is_err() {
+            return None;
+        };
+
+        // БЛОКИРУЕМ текущий поток ОС (в котором крутится Lua) до тех пор,
+        // пока Ядро не пришлет нам ответ в reply_rx
+        reply_rx.blocking_recv().ok()?
     }
 
-    /// Обновить состояние. Fire-and-forget.
-    pub fn update_state(
-        &self,
-        entity_id: impl Into<String>,
-        new_state: EntityState,
-        source: UpdateSource,
-    ) {
-        let _ = self.tx.send(EntityMessage::UpdateState {
-            entity_id: entity_id.into(),
-            new_state,
-            source,
-        });
-    }
-    /// Обновить состояние конкретного поля сущности
+    // // не блокирующий метод для async
+    // pub async fn get_state(&self, entity_id: &str) -> Option<Entity> {
+    //     let (tx, rx) = oneshot::channel();
+    //     self.tx
+    //         .send(EntityMessage::GetState {
+    //             entity_id: entity_id.to_string(),
+    //             reply: tx,
+    //         })
+    //         .ok()?;
+    //     rx.await.ok()?
+    // }
+
     pub fn update_field(
         &self,
         entity_id: impl Into<String>,
         field: FieldUpdate,
         source: UpdateSource,
     ) {
-        let _ = self.tx.send(EntityMessage::UpdateStateField {
+        let msg = SystemMessage::UpdateEntityField {
             entity_id: entity_id.into(),
             field,
             source,
-        });
-    }
-
-    // блокирующий метод для сихронного кода
-    pub fn get_state_blocking(&self, entity_id: &str) -> Option<Entity> {
-        let (tx, rx) = oneshot::channel();
-        self.tx
-            .send(EntityMessage::GetState {
-                entity_id: entity_id.to_string(),
-                reply: tx,
-            })
-            .ok()?;
-        rx.blocking_recv().ok()?
-    }
-
-    // не блокирующий метод для async
-    pub async fn get_state(&self, entity_id: &str) -> Option<Entity> {
-        let (tx, rx) = oneshot::channel();
-        self.tx
-            .send(EntityMessage::GetState {
-                entity_id: entity_id.to_string(),
-                reply: tx,
-            })
-            .ok()?;
-        rx.await.ok()?
-    }
-
-    /// Подождать, пока менеджер обработает все текущие сообщения в очереди.
-    /// Этот метод асинхронный, его можно вызывать в async-контексте через .await
-    pub async fn wait_ready(&self) -> Result<(), String> {
-        let (tx, rx) = oneshot::channel();
-
-        // Отправляем сообщение в очередь менеджера
-        if self
-            .tx
-            .send(EntityMessage::WaitReady { reply: tx })
-            .is_err()
-        {
-            return Err("EntityManager уже остановлен".to_string());
-        }
-
-        // Ждем, пока менеджер обработает все сообщения перед нами и ответит в rx
-        rx.await
-            .map_err(|_| "Поток EntityManager аварийно завершился".to_string())
-    }
-
-    pub fn subscribe_blocking(
-        &self,
-    ) -> Option<(
-        Vec<Entity>,
-        tokio::sync::mpsc::UnboundedReceiver<Notification>,
-    )> {
-        let (tx, rx) = tokio::sync::oneshot::channel();
-        self.tx.send(EntityMessage::Subscribe { reply: tx }).ok()?;
-        rx.blocking_recv().ok()
+        };
+        let _ = self.tx_to_router.send(msg);
     }
 }
 
 
 --- ./crates/ent_core/src/lib.rs ---
-pub mod entity;
 pub mod handle;
 pub mod manager;
-pub mod message;
-pub mod state;
 pub mod state_filed_kind;
 
-pub use entity::Entity;
-pub use handle::EntityHandle;
 pub use manager::EntityManager;
-pub use message::{EntityMessage, UpdateSource};
-pub use state::{EntityState, FieldUpdate, LightState, SensorState};
+
+// pub use entity::Entity;
+// pub use handle::EntityHandle;
+// pub use message::{EntityMessage, UpdateSource};
+// pub use state::{EntityState, FieldUpdate, LightState, SensorState};
 
 
 --- ./crates/ent_core/src/manager.rs ---
+// ./crates/ent_core/src/manager.rs
 use std::collections::HashMap;
-use std::{println, thread};
+use std::{eprintln, println, thread};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
-use crate::entity::Entity;
-use crate::state_filed_kind::StateKind;
-use ent_router::SystemMessage;
+// Импортируем всё необходимое из единого центра типов
+use ent_types::{Entity, EntityState, FieldUpdate, SystemMessage};
 
 pub struct EntityManager {
     // приемник от Роутера
     rx: UnboundedReceiver<SystemMessage>,
     // передатчик в Роутер (чтобы кричать о событиях)
     tx_to_router: UnboundedSender<SystemMessage>,
-    
+
     // внутренняя база данных сущностей
     pub entities: HashMap<String, Entity>,
 }
@@ -528,22 +437,16 @@ impl EntityManager {
         thread::Builder::new()
             .name("[entcore] entity-manager".into())
             .spawn(move || {
-                // Создаем локальный микро-рантайм Tokio для асинхронного цикла чтения
-                let rt = tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .expect("Не удалось запустить рантайм для EntityManager");
-
-                rt.block_on(manager.run());
+                manager.run();
             })
             .expect("Не удалось запустить поток EntityManager");
     }
 
     /// Главный асинхронный цикл обработки данных ядра
-    async fn run(&mut self) {
+    fn run(&mut self) {
         println!("[Ядро] Менеджер сущностей запущен.");
 
-        while let Some(msg) = self.rx.recv().await {
+        while let Some(msg) = self.rx.blocking_recv() {
             match msg {
                 // 1. РЕГИСТРАЦИЯ СУЩНОСТИ
                 SystemMessage::RegisterEntity(entity) => {
@@ -554,33 +457,51 @@ impl EntityManager {
                     }
 
                     self.entities.insert(id.clone(), entity);
+                    let event = SystemMessage::EntityChangedEvent { entity_id: id.clone() };
+                    let _ = self.tx_to_router.send(event);
                     println!("[Ядро] Сущность с id = {} успешно зарегистрирована", id);
                 }
 
                 // 2. ОБНОВЛЕНИЕ КОНКРЕТНОГО ПОЛЯ
-                SystemMessage::UpdateEntityField { entity_id, field, source } => {
+                SystemMessage::UpdateEntityField {
+                    entity_id,
+                    field,
+                    source,
+                } => {
                     if let Some(entity) = self.entities.get_mut(&entity_id) {
-                        use crate::state::{EntityState, FieldUpdate::*};
-                        
+                        // use crate::state::{EntityState, FieldUpdate::*};
+
                         // Вычисляем, изменилось ли значение на самом деле (защита от дедупликации)
                         let changed = match (&mut entity.state, field) {
-                            (EntityState::Light(light), IsOn(v)) => {
-                                let old = light.is_on; light.is_on = v; old != v
+                            (EntityState::Light(light), FieldUpdate::IsOn(v)) => {
+                                let old = light.is_on;
+                                light.is_on = v;
+                                old != v
                             }
-                            (EntityState::Light(light), Brightness(v)) => {
-                                let old = light.brightness; light.brightness = v; old != v
+                            (EntityState::Light(light), FieldUpdate::Brightness(v)) => {
+                                let old = light.brightness;
+                                light.brightness = v;
+                                old != v
                             }
-                            (EntityState::Light(light), ColorTemp(v)) => {
-                                let old = light.color_temp; light.color_temp = v; old != v
+                            (EntityState::Light(light), FieldUpdate::ColorTemp(v)) => {
+                                let old = light.color_temp;
+                                light.color_temp = v;
+                                old != v
                             }
-                            (EntityState::Sensor(sensor), Value(v)) => {
-                                let old = sensor.value; sensor.value = v; old != v
+                            (EntityState::Sensor(sensor), FieldUpdate::Value(v)) => {
+                                let old = sensor.value;
+                                sensor.value = v;
+                                old != v
                             }
-                            (EntityState::BinarySensor(binary), IsOn(v)) => {
-                                let old = binary.is_on; binary.is_on = v; old != v
+                            (EntityState::BinarySensor(binary), FieldUpdate::IsOn(v)) => {
+                                let old = binary.is_on;
+                                binary.is_on = v;
+                                old != v
                             }
-                            (EntityState::InputBoolean(input_bool), IsOn(v)) => {
-                                let old = input_bool.is_on; input_bool.is_on = v; old != v
+                            (EntityState::InputBoolean(input_bool), FieldUpdate::IsOn(v)) => {
+                                let old = input_bool.is_on;
+                                input_bool.is_on = v;
+                                old != v
                             }
                             _ => {
                                 eprintln!("[Ядро] ⚠️ Несовместимое поле для '{}'", entity_id);
@@ -591,25 +512,27 @@ impl EntityManager {
                         // Если значение НЕ изменилось — срабатывает дедупликация и переходим к следующему сообщению.
                         if !changed {
                             // Значение то же самое, защитили систему от лишней работы!
-                            continue; 
+                            continue;
                         }
 
                         // Сюда код дойдет ТОЛЬКО если значение реально обновилось
                         println!("[Ядро] 🔄 '{}' обновлена (source: {:?})", entity_id, source);
-                        
+
                         // Отправляем "будильник" в Роутер для пробуждения Lua-скриптов
                         let event = SystemMessage::EntityChangedEvent {
                             entity_id: entity_id.clone(),
                         };
                         let _ = self.tx_to_router.send(event);
-
                     } else {
                         // Срабатывает, только если id сущности вообще нет в базе данных ядра!
-                        eprintln!("[Ядро] ⚠️ UpdateEntityField: неизвестная сущность '{}'", entity_id);
+                        eprintln!(
+                            "[Ядро] ⚠️ UpdateEntityField: неизвестная сущность '{}'",
+                            entity_id
+                        );
                     }
                 }
 
-                // 3. ОБРАБОТКА ЗАПРОСА СОСТОЯНИЯ 
+                // 3. ОБРАБОТКА ЗАПРОСА СОСТОЯНИЯ
                 SystemMessage::GetEntityState { entity_id, reply } => {
                     let entity_clone = self.entities.get(&entity_id).cloned();
                     // Отправляем ответ НАПРЯМУЮ в вложенный конверт (минуя Роутер)
@@ -631,136 +554,10 @@ impl EntityManager {
 }
 
 
---- ./crates/ent_core/src/message.rs ---
-use crate::entity::Entity;
-use crate::state::{EntityState, FieldUpdate};
-use crate::state_filed_kind::StateKind;
-use tokio::sync::oneshot;
-// use tokio::sync::mpsc;
-use std::sync::mpsc;
-
-/// Сообщения, которые модули шлют в EntityManager.
-#[derive(Debug)]
-pub enum EntityMessage {
-    /// Зарегистрировать сущность при старте.
-    Register(Entity),
-
-    /// Новый вариант: подождать, пока менеджер обработает все предыдущие сообщения.
-    /// Ответ (сигнал готовности) вернется через oneshot-канал.
-    WaitReady { reply: oneshot::Sender<()> },
-
-    /// Обновить состояние сущности.
-    UpdateState {
-        entity_id: String,
-        new_state: EntityState,
-        source: UpdateSource,
-    },
-
-    UpdateStateField {
-        entity_id: String,
-        field: FieldUpdate,
-        source: UpdateSource,
-    },
-
-    /// Прочитать сущность по id. Ответ — через oneshot.
-    GetState {
-        entity_id: String,
-        reply: oneshot::Sender<Option<Entity>>,
-    },
-
-    /// Получить список всех сущностей. Для отладки и WebUI.
-    ListAll { reply: oneshot::Sender<Vec<Entity>> },
-
-    Subscribe {
-        reply: oneshot::Sender<(
-            Vec<Entity>,
-            tokio::sync::mpsc::UnboundedReceiver<Notification>,
-        )>,
-    },
-
-    /// Завершить работу актора.
-    Shutdown,
-}
-
-/// Кто инициировал изменение.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum UpdateSource {
-    Mqtt,
-    Script,
-    Timer,
-    Helper,
-    System,
-}
-
-#[derive(Debug, Clone)]
-pub enum Notification {
-    Registered { id: String, kind: StateKind },
-    Changed { id: String, state: EntityState },
-}
-
-
---- ./crates/ent_core/src/state.rs ---
-use mlua::UserData;
-
-// Enum теперь — это просто чистый диспетчер, который объединяет эти структуры
-#[derive(Debug, Clone, PartialEq)]
-pub enum EntityState {
-    Light(LightState),
-    Sensor(SensorState),
-    BinarySensor(BinarySensorState),
-    Counter(CounterState),
-    InputBoolean(InputBooleanState),
-}
-
-// Каждая сущность теперь имеет свою независимую, чистую структуру данных
-
-#[derive(Debug, Clone, PartialEq, UserData)]
-pub struct LightState {
-    pub is_on: bool,
-    pub brightness: Option<u8>,
-    pub color_temp: Option<u16>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct SensorState {
-    pub value: f64,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct BinarySensorState {
-    pub is_on: bool,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct CounterState {
-    pub value: u64,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct InputBooleanState {
-    pub is_on: bool,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum FieldUpdate {
-    IsOn(bool),
-    Brightness(Option<u8>),
-    ColorTemp(Option<u16>),
-    Value(f64),
-}
-
-
 --- ./crates/ent_core/src/state_filed_kind.rs ---
-use crate::Entity;
-use crate::EntityState;
+use ent_types::EntityState;
 use mlua::UserData;
 use std::collections::HashMap;
-
-use crate::{
-    EntityManager,
-    EntityState::{BinarySensor, Counter, InputBoolean, Light, Sensor},
-};
-// use crate::state::FiledKind;
 
 #[derive(Debug, Clone, PartialEq, UserData)]
 pub enum StateKind {
@@ -789,49 +586,49 @@ pub struct StateFiledKind {
 
 impl StateFiledKind {
     pub fn new() -> Self {
-        let map: HashMap<String, StateKind> = HashMap::new();
-
-        Self { map }
+        Self {
+            map: HashMap::new(),
+        }
     }
 }
 
 
 --- ./crates/ent_core/tests/manager_test.rs ---
-use ent_core::{Entity, EntityHandle, EntityManager, EntityState, LightState, UpdateSource};
+// use ent_core::{Entity, EntityHandle, EntityManager, EntityState, LightState, UpdateSource};
 
-#[test]
-fn test_register_and_get() {
-    // 1. Создаём EntityManager
-    let handle = EntityManager::spawn();
+// #[test]
+// fn test_register_and_get() {
+//     // 1. Создаём EntityManager
+//     let handle = EntityManager::spawn();
 
-    // 2. Создаём сущность
-    // Было: state: EntityState::Light { is_on: false, brightness: None, color_temp: None }
-    // Стало:
-    let light = Entity {
-        id: "light.living_room".to_string(),
-        friendly_name: "Люстра в зале".to_string(),
-        state: EntityState::Light(LightState {
-            is_on: false,
-            brightness: None,
-            color_temp: None,
-        }),
-    };
+//     // 2. Создаём сущность
+//     // Было: state: EntityState::Light { is_on: false, brightness: None, color_temp: None }
+//     // Стало:
+//     let light = Entity {
+//         id: "light.living_room".to_string(),
+//         friendly_name: "Люстра в зале".to_string(),
+//         state: EntityState::Light(LightState {
+//             is_on: false,
+//             brightness: None,
+//             color_temp: None,
+//         }),
+//     };
 
-    // 3. Регистрируем
-    handle.register(light.clone());
+//     // 3. Регистрируем
+//     handle.register(light.clone());
 
-    // 4. Небольшая пауза, чтобы сообщение дошло
-    std::thread::sleep(std::time::Duration::from_millis(50));
+//     // 4. Небольшая пауза, чтобы сообщение дошло
+//     std::thread::sleep(std::time::Duration::from_millis(50));
 
-    // 5. Читаем через handle
-    let result = handle.get_state_blocking("light.living_room");
+//     // 5. Читаем через handle
+//     let result = handle.get_state_blocking("light.living_room");
 
-    // 6. Проверяем
-    assert!(result.is_some(), "Сущность должна быть найдена");
-    let entity = result.unwrap();
-    assert_eq!(entity.id, "light.living_room");
-    assert_eq!(entity.friendly_name, "Люстра в зале");
-}
+//     // 6. Проверяем
+//     assert!(result.is_some(), "Сущность должна быть найдена");
+//     let entity = result.unwrap();
+//     assert_eq!(entity.id, "light.living_room");
+//     assert_eq!(entity.friendly_name, "Люстра в зале");
+// }
 
 
 --- ./crates/ent_ctl/Cargo.toml ---
@@ -842,9 +639,11 @@ edition = "2024"
 
 [dependencies]
 cfg = { path = "../cfg" }
+ent_types = { path = "../ent_types" }
 ent_core = { path = "../ent_core" }
 ent_mqtt = { path = "../ent_mqtt" }
 ent_router = { path = "../ent_router" }
+ent_lua = { path = "../ent_lua" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
 
 --- ./crates/ent_ctl/src/main.rs ---
@@ -853,12 +652,16 @@ use std::thread;
 use tokio::sync::mpsc;
 
 use cfg::Config;
+use ent_core::EntityManager;
+use ent_core::handle::EntityHandle;
+use ent_lua::runner::ScriptRunner;
 use ent_mqtt::{MqttBridge, mqtt_entities_from_config};
-use ent_router::{Router, SystemMessage};
+use ent_router::Router;
+use ent_types::SystemMessage;
 
 #[tokio::main]
 async fn main() {
-    println!("Запуск entcore с центральным маршрутизатором...");
+    println!("=== [entcore] Запуск системы умного дома (Топология Звезда) ===");
 
     // 1. Читаем конфиг (твоя оригинальная логика)
     let config = Config::load_config("config.toml").expect("Не удалось загрузить конфиг");
@@ -867,16 +670,11 @@ async fn main() {
     // 2. Создаем каналы обратной связи (рельсы ОТ Роутера К модулям)
     let (tx_to_core, rx_for_core) = mpsc::unbounded_channel::<SystemMessage>();
     let (tx_to_lua, rx_for_lua) = mpsc::unbounded_channel::<SystemMessage>();
-    let (tx_to_mqtt, rx_for_mqtt) = mpsc::unbounded_channel::<SystemMessage>();
+    let (tx_to_mqtt, _rx_for_mqtt) = mpsc::unbounded_channel::<SystemMessage>();
 
     // 3. Инициализируем Роутер
     // Получаем сам роутер и входной tx_in, через который все модули будут слать сообщения
     let (router, tx_in) = Router::new(tx_to_core, tx_to_lua, tx_to_mqtt);
-
-    // Клонируем входной передатчик для MQTT-моста
-    let tx_for_core = tx_in.clone();
-    let tx_for_lua = tx_in.clone();
-    let tx_for_mqtt = tx_in.clone();
 
     // 4. Выделяем под Роутер отдельный поток операционной системы
     thread::Builder::new()
@@ -893,41 +691,61 @@ async fn main() {
 
     println!("✅ Поток центрального Роутера запущен");
 
-    // -----------------------------------------------------------------
-    // ЗАДЕЛ НА СЛЕДУЮЩИЕ ШАГИ (Пока закомментировано, так как мы еще не переписали эти крейты)
-    // -----------------------------------------------------------------
-    
-    // 5. Создаём EntityManager (он должен будет слушать rx_for_core)
-    // let handle = EntityManager::spawn(rx_for_core, tx_in.clone());
-    // println!("✅ EntityManager запущен");
+    // 5. Запускаем EntityManager (Ядро)
+    // Оно будет слушать свою ветку rx_for_core и слать ответы/события обратно в Роутер через tx_in
+    EntityManager::spawn(rx_for_core, tx_in.clone());
+    println!("✅ EntityManager (Ядро) успешно запущен.");
 
-    // 6. Конвертируем MQTT-сущности и Регистрируем их через Роутер
-    // let mqtt_entities = mqtt_entities_from_config(&config.mqtt);
-    // println!("📦 Создано {} MQTT-сущностей", mqtt_entities.len());
-    // for entity in mqtt_entities {
-    //     tx_in.send(SystemMessage::RegisterEntity(entity)).unwrap();
-    // }
+    // 6. Конвертируем MQTT-сущности из конфига и регистрируем их в Системе
+    let mqtt_entities = mqtt_entities_from_config(&config.mqtt);
+    println!(
+        "📦 Обнаружено {} MQTT-сущностей в конфиге. Регистрируем...",
+        mqtt_entities.len()
+    );
+    for entity in mqtt_entities {
+        tx_in
+            .send(SystemMessage::RegisterEntity(entity))
+            .expect("Не удалось отправить команду регистрации сущности");
+    }
 
-    // 7. Запуск Lua ScriptRunner (он должен будет слушать rx_for_lua)
-    // let lua_runner = ScriptRunner::spawn(config.system.scripts_directory, rx_for_lua, tx_in.clone());
+    // 7. Создаем EntityHandle для Lua, который смотрит на Роутер
+    let lua_handle = EntityHandle::new(tx_in.clone());
 
-    // 8. Запуск MQTT bridge (он будет слать сообщения в tx_for_mqtt)
-    // let integrations = &config.integrations;
-    // let mqtt_config = integrations.mqtt.as_ref().expect("Секция [integrations.mqtt] обязательна");
-    // let mqtt_bridge = MqttBridge::new(mqtt_config, &config.mqtt, tx_for_mqtt);
-    // let bridge_handle = tokio::spawn(async move {
-    //     mqtt_bridge.run().await;
-    // });
+    //TODO нужно реализовать способ дожидаться пока все регистрации обработаются перед запуском ScriptRunner
 
-    // Временная заглушка для теста: спим 5 секунд и завершаем работу
-    println!("📡 Система активна. Работаем 5 секунд...");
-    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+    // 8. Запуск движка автоматизации Lua ScriptRunner
+    ScriptRunner::spawn(
+        config.system.scripts_directory.clone(),
+        rx_for_lua,
+        lua_handle,
+    );
+    println!("✅ Движок автоматизации ScriptRunner (Lua) запущен.");
 
-    println!("Завершение работы...");
+    // 9. Запуск MQTT-моста
+    let integrations = &config.integrations;
+    let mqtt_config = integrations
+        .mqtt
+        .as_ref()
+        .expect("Секция [integrations.mqtt] обязательна");
+
+    // Передаем мосту клон tx_in, чтобы он слал FieldUpdate сообщения на Роутер
+    let mqtt_bridge = MqttBridge::new(mqtt_config, &config.mqtt, tx_in.clone());
+
+    tokio::spawn(async move {
+        mqtt_bridge.run().await;
+    });
+    println!("✅ Мост MQTT запущен и подключается к брокеру.");
+
+    // 10. Основной рабочий цикл ctl-модуля (MVP работает 10 секунд и изящно завершается)
+    println!("\n📡 Система полностью активна и обрабатывает события. Ждем 10 секунд...");
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+    println!("\n🛑 Инициировано плановое завершение работы системы...");
     let _ = tx_in.send(SystemMessage::Shutdown);
-    
-    // Даем микро-паузу, чтобы потоки успели напечатать свои логи закрытия
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    // Микро-пауза, чтобы потоки успели напечатать логи закрытия
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    println!("=== [entcore] Работа завершена ===");
 }
 
 
@@ -940,6 +758,8 @@ edition = "2024"
 [dependencies]
 mlua = { version = "0.12", features = ["lua54", "vendored", "macros"] }
 ent_core = { path = "../ent_core" }
+ent_types = { path = "../ent_types" }
+tokio = { version = "1", features = ["sync"] }
 
 [dev-dependencies]
 cfg = { path = "../cfg" }
@@ -1018,52 +838,52 @@ impl Script {
 
 
 --- ./crates/ent_lua/examples/test_lua.rs ---
-use ent_core::{Entity, EntityManager, EntityState, LightState, SensorState};
-use ent_lua::AutomationEvent;
-use ent_lua::runner::ScriptRunner;
-use std::time::Duration;
+// use ent_core::{Entity, EntityManager, EntityState, LightState, SensorState};
+// use ent_lua::AutomationEvent;
+// use ent_lua::runner::ScriptRunner;
+// use std::time::Duration;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let dir = "D://Rust//projects//entcore//scripts"; // из конфига
-    let handle = EntityManager::spawn();
+// fn main() -> Result<(), Box<dyn std::error::Error>> {
+//     let dir = "D://Rust//projects//entcore//scripts"; // из конфига
+//     let handle = EntityManager::spawn();
 
-    handle.register(Entity {
-        id: "light.kitchen".to_string(),
-        friendly_name: "Кухня".to_string(),
-        state: EntityState::Light(LightState {
-            is_on: true,
-            brightness: Some(200),
-            color_temp: None,
-        }),
-    });
+//     handle.register(Entity {
+//         id: "light.kitchen".to_string(),
+//         friendly_name: "Кухня".to_string(),
+//         state: EntityState::Light(LightState {
+//             is_on: true,
+//             brightness: Some(200),
+//             color_temp: None,
+//         }),
+//     });
 
-    handle.register(Entity {
-        id: "sensor.kitchen_motion".to_string(),
-        friendly_name: "Движение кухня".to_string(),
-        state: EntityState::Sensor(SensorState { value: 0.0 }),
-    });
+//     handle.register(Entity {
+//         id: "sensor.kitchen_motion".to_string(),
+//         friendly_name: "Движение кухня".to_string(),
+//         state: EntityState::Sensor(SensorState { value: 0.0 }),
+//     });
 
-    std::thread::sleep(Duration::from_millis(50)); // ← дать менеджеру обработать
-    let runner = ScriptRunner::spawn(dir, handle);
+//     std::thread::sleep(Duration::from_millis(50)); // ← дать менеджеру обработать
+//     let runner = ScriptRunner::spawn(dir, handle);
 
-    // подождать, пока загрузится (пока — sleep)
-    std::thread::sleep(Duration::from_millis(500));
+//     // подождать, пока загрузится (пока — sleep)
+//     std::thread::sleep(Duration::from_millis(500));
 
-    // runner.notify_changed(AutomationEvent {
-    //     entity_id: "light.kitchen".into(),
-    //     value: 42.0,
-    // });
+//     // runner.notify_changed(AutomationEvent {
+//     //     entity_id: "light.kitchen".into(),
+//     //     value: 42.0,
+//     // });
 
-    runner.notify_changed(AutomationEvent {
-        entity_id: "sensor.kitchen_motion".into(),
-        value: 1.0,
-    });
+//     runner.notify_changed(AutomationEvent {
+//         entity_id: "sensor.kitchen_motion".into(),
+//         value: 1.0,
+//     });
 
-    std::thread::sleep(Duration::from_millis(500));
-    runner.shutdown();
+//     std::thread::sleep(Duration::from_millis(500));
+//     runner.shutdown();
 
-    Ok(())
-}
+//     Ok(())
+// }
 
 
 --- ./crates/ent_lua/src/lib.rs ---
@@ -1076,90 +896,88 @@ pub use script_engine::{AutomationEvent, ScriptEngine};
 
 
 --- ./crates/ent_lua/src/runner.rs ---
+// ./crates/ent_lua/src/runner.rs
 use crate::ScriptEngine;
 use crate::script_engine::AutomationEvent;
 use ent_core::handle::EntityHandle;
-use ent_core::manager::EntityManager;
-use ent_core::state_filed_kind::StateKind;
-use std::collections::HashMap;
+use ent_types::SystemMessage;
 use std::path::Path;
-use std::sync::mpsc;
+use tokio::sync::mpsc::UnboundedReceiver;
 
-pub enum ScriptRunnerMessage {
-    EntityChanged(AutomationEvent),
-    StateKind((String, StateKind)),
-    Shutdown,
-}
-
-pub struct ScriptRunnerHandle {
-    tx: mpsc::Sender<ScriptRunnerMessage>,
-}
-
-impl ScriptRunnerHandle {
-    pub fn notify_changed(&self, event: AutomationEvent) {
-        let _ = self.tx.send(ScriptRunnerMessage::EntityChanged(event));
-    }
-    pub fn shutdown(&self) {
-        let _ = self.tx.send(ScriptRunnerMessage::Shutdown);
-    }
-}
- 
 pub struct ScriptRunner;
 
 impl ScriptRunner {
+    /// Спавнит ScriptRunner в отдельном потоке ОС БЕЗ рантайма Tokio
     pub fn spawn(
         scripts_dir: impl AsRef<Path> + Send + 'static,
+        mut rx_for_lua: UnboundedReceiver<SystemMessage>,
         tx_handle: EntityHandle,
-    ) -> ScriptRunnerHandle {
-        let (tx, rx) = mpsc::channel();
-
+    ) {
         std::thread::Builder::new()
-            .name("script-runner".into())
+            .name("[entcore] script-runner".into())
             .spawn(move || {
-                // let mut engine = ScriptEngine::new().expect(r"ошибка в crates\ent_lua\src\runner.rs - fn spawn");
-                let (mut engine, receiver) = ScriptEngine::new(tx_handle)
-                    .expect(r"ошибка в crates\ent_lua\src\runner.rs - fn spawn");
-                engine
-                    .register_log()
-                    .expect(r"ошибка в crates\ent_lua\src\runner.rs - fn spawn");
-                engine
-                    .registr_entity_id()
-                    .expect(r"ошибка в crates\ent_lua\src\runner.rs - fn spawn");
-                engine
-                    .get_state()
-                    .expect(r"ошибка в crates\ent_lua\src\runner.rs - fn spawn");
-                engine
-                    .load_scripts(scripts_dir, receiver)
-                    .expect(r"ошибка в crates\ent_lua\src\runner.rs - fn spawn");
+                // Инициализируем синхронный движок Lua
+                let (mut engine, receiver) = match ScriptEngine::new(tx_handle) {
+                    Ok(e) => e,
+                    Err(e) => {
+                        eprintln!("[Lua] Ошибка создания ScriptEngine: {}", e);
+                        return;
+                    }
+                };
 
-                loop {
-                    match rx.recv() {
-                        Ok(ScriptRunnerMessage::EntityChanged(event)) => {
+                if let Err(e) = engine.register_log() {
+                    eprintln!("[Lua] Ошибка register_log: {}", e);
+                    return;
+                }
+                if let Err(e) = engine.registr_entity_id() {
+                    eprintln!("[Lua] Ошибка registr_entity_id: {}", e);
+                    return;
+                }
+                if let Err(e) = engine.get_state() {
+                    eprintln!("[Lua] Ошибка get_state: {}", e);
+                    return;
+                }
+                if let Err(e) = engine.set_state() {
+                    eprintln!("[Lua] Ошибка set_state: {}", e);
+                    return;
+                }
+                if let Err(e) = engine.load_scripts(scripts_dir, receiver) {
+                    eprintln!("[Lua] Ошибка load_scripts: {}", e);
+                    // ← можно продолжить, часть скриптов загрузилась
+                }
+
+                println!("[Lua] Движок автоматизации запущен и готов к событиям.");
+
+                // Чистый синхронный цикл! Поток спит, пока Роутер не пришлет событие.
+                // reply_rx.blocking_recv() внутри get_state теперь НЕ будет вызывать панику,
+                // так как мы больше не находимся под управлением рантайма Tokio!
+                while let Some(msg) = rx_for_lua.blocking_recv() {
+                    match msg {
+                        SystemMessage::EntityChangedEvent { entity_id } => {
+                            let event = AutomationEvent {
+                                entity_id,
+                                value: 0.0,
+                            };
                             let _ = engine.call_functions(event);
                         }
-                        Ok(ScriptRunnerMessage::StateKind((k, v))) => {
-                            engine.state_kind.map.insert(k, v);
-                        }
-                        Ok(ScriptRunnerMessage::Shutdown) => break,
-                        Err(e) => {
-                            println!("Канал закрыт: {}", e);
+                        SystemMessage::Shutdown => {
+                            println!("[Lua] Получен сигнал Shutdown. Остановка скриптов...");
                             break;
                         }
+                        _ => {}
                     }
                 }
             })
-            .expect(r"ошибка в crates\ent_lua\src\runner.rs - fn spawn");
-        ScriptRunnerHandle { tx }
+            .expect("Не удалось запустить поток ScriptRunner");
     }
 }
 
 
 --- ./crates/ent_lua/src/script_engine.rs ---
 use crate::source;
-use ent_core::EntityManager;
-use ent_core::state::SensorState;
+use ent_core::handle::EntityHandle;
 use ent_core::state_filed_kind::StateFiledKind;
-use ent_core::{EntityState, LightState, handle::EntityHandle};
+use ent_types::{EntityState, FieldUpdate, UpdateSource};
 use mlua::{Function, Lua, UserData};
 use std::{
     collections::HashMap,
@@ -1283,10 +1101,10 @@ impl ScriptEngine {
             match handle.get_state_blocking(&entity_id) {
                 Some(e) => match e.state {
                     EntityState::Light(l) => Ok(mlua::Value::UserData(lua.create_userdata(l)?)),
-                    EntityState::Sensor(s) => Ok(mlua::Value::Number(s.value)),
-                    EntityState::BinarySensor(b) => Ok(mlua::Value::Boolean(b.is_on)),
-                    EntityState::InputBoolean(i) => Ok(mlua::Value::Boolean(i.is_on)),
-                    EntityState::Counter(c) => Ok(mlua::Value::Number(c.value as f64)),
+                    EntityState::Sensor(s) => Ok(mlua::Value::UserData(lua.create_userdata(s)?)),
+                    EntityState::BinarySensor(b) => Ok(mlua::Value::UserData(lua.create_userdata(b)?)),
+                    EntityState::InputBoolean(i) => Ok(mlua::Value::UserData(lua.create_userdata(i)?)),
+                    EntityState::Counter(c) => Ok(mlua::Value::UserData(lua.create_userdata(c)?)),
                 },
                 None => Ok(mlua::Value::Nil),
             }
@@ -1295,7 +1113,61 @@ impl ScriptEngine {
         Ok(())
     }
 
-    // pub set_state
+    pub fn set_state(&self) -> Result<(), mlua::Error> {
+        let handle = self.tx_handle.clone();
+        let f = self
+            .lua
+            .create_function(move |_, (entity_id, value): (String, mlua::Value)| {
+                match handle.get_state_blocking(&entity_id) {
+                    Some(entity) => match (entity.state, value) {
+                        (EntityState::Light(_), mlua::Value::Boolean(b)) => {
+                            handle.update_field(
+                                &entity_id,
+                                FieldUpdate::IsOn(b),
+                                UpdateSource::Script,
+                            );
+                        }
+                        (EntityState::Light(_), mlua::Value::Number(n)) => {
+                            handle.update_field(
+                                &entity_id,
+                                FieldUpdate::Brightness(Some(n as u8)),
+                                UpdateSource::Script,
+                            );
+                        }
+                        (EntityState::Sensor(_), mlua::Value::Number(n)) => {
+                            handle.update_field(
+                                &entity_id,
+                                FieldUpdate::Value(n),
+                                UpdateSource::Script,
+                            );
+                        }
+                        (EntityState::BinarySensor(_), mlua::Value::Boolean(b)) => {
+                            handle.update_field(
+                                &entity_id,
+                                FieldUpdate::IsOn(b),
+                                UpdateSource::Script,
+                            );
+                        }
+                        (EntityState::InputBoolean(_), mlua::Value::Boolean(b)) => {
+                            handle.update_field(
+                                &entity_id,
+                                FieldUpdate::IsOn(b),
+                                UpdateSource::Script,
+                            );
+                        }
+                        _ => {
+                            eprintln!("[Lua] set_state: несовместимый тип для '{}'", entity_id);
+                        }
+                    },
+                    None => {
+                        eprintln!("[Lua] set_state: сущность '{}' не найдена", entity_id);
+                    }
+                }
+                Ok(())
+            })?;
+        self.lua.globals().set("set_state", f)?;
+        Ok(())
+    }
 }
 
 
@@ -1370,6 +1242,7 @@ edition = "2024"
 
 [dependencies]
 cfg = { path = "../cfg" }
+ent_types = { path = "../ent_types" }
 ent_core = { path = "../ent_core" }
 rumqttc = "0.24"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
@@ -1412,34 +1285,29 @@ async fn main() {
 
 
 --- ./crates/ent_mqtt/src/bridge.rs ---
+use rumqttc::{AsyncClient, Event, Incoming, MqttOptions, QoS};
 use std::println;
 use std::time::Duration;
-
-// use cfg::Mqtt;
-use rumqttc::{AsyncClient, Event, Incoming, MqttOptions, QoS};
-
-use ent_core::{EntityHandle, UpdateSource};
-
-use cfg::{Mqtt, MqttBroker};
-// use crate::converter::{Topics, mqtt_from_config};
+use tokio::sync::mpsc::UnboundedSender;
 
 use crate::converter::{TopicKind, Topics, mqtt_from_config};
+use cfg::{Mqtt, MqttBroker};
 
-use ent_core::FieldUpdate;
-
-// use ent_core::UpdateSource;
-// use ent_core::EntityHandle;
+use ent_types::{FieldUpdate, SystemMessage, UpdateSource};
 
 pub struct MqttBridge {
     client: AsyncClient,
     eventloop: rumqttc::EventLoop,
     topics: Topics,
-    // tx: EntityHandle,
-    handle: EntityHandle,
+    tx_to_router: UnboundedSender<SystemMessage>,
 }
 
 impl MqttBridge {
-    pub fn new(broker: &MqttBroker, mqtt: &Mqtt, handle: EntityHandle) -> Self {
+    pub fn new(
+        broker: &MqttBroker,
+        mqtt: &Mqtt,
+        tx_to_router: UnboundedSender<SystemMessage>,
+    ) -> Self {
         let mut options = MqttOptions::new("entcore", &broker.host, broker.port);
         options.set_keep_alive(Duration::from_secs(5));
 
@@ -1451,7 +1319,7 @@ impl MqttBridge {
             client,
             eventloop,
             topics,
-            handle,
+            tx_to_router,
         }
     }
 
@@ -1462,6 +1330,7 @@ impl MqttBridge {
                 Ok(Event::Incoming(Incoming::Publish(p))) => {
                     let payload = String::from_utf8_lossy(&p.payload);
                     if let Some(mapping) = self.topics.state_topic.get(&p.topic) {
+                        // Парсим сырые данные из MQTT в наши типизированные FieldUpdate
                         let field = match mapping.kind {
                             TopicKind::LightIsOn => {
                                 let v = payload == "1" || payload == "true" || payload == "ON";
@@ -1477,11 +1346,18 @@ impl MqttBridge {
                                 FieldUpdate::Value(payload.parse().unwrap_or(0.0))
                             }
                         };
-                        self.handle.update_field(
-                            mapping.entity_id.clone(),
+                        // Создаем сообщение Роутеру!
+                        let msg = SystemMessage::UpdateEntityField {
+                            entity_id: mapping.entity_id.clone(),
                             field,
-                            UpdateSource::Mqtt,
-                        );
+                            source: UpdateSource::Mqtt,
+                        };
+
+                        // Отправляем на центральный Роутер. Если роутер упал, .is_err() это отловит.
+                        if self.tx_to_router.send(msg).is_err() {
+                            println!("⚠️ [MQTT Мост] Центральный роутер остановился. Выходим.");
+                            break;
+                        }
                     }
                 }
                 Ok(Event::Incoming(Incoming::ConnAck(_))) => {
@@ -1518,7 +1394,7 @@ impl MqttBridge {
 
 --- ./crates/ent_mqtt/src/converter.rs ---
 use cfg::Mqtt;
-use ent_core::{Entity, EntityState, LightState, SensorState};
+use ent_types::{Entity, EntityState, LightState, SensorState};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -1656,128 +1532,179 @@ edition = "2024"
 
 [dependencies]
 tokio = { version = "1", features = ["sync"] }
-ent_core = { path = "../ent_core" }
+ent_types = { path = "../ent_types" }
 
 
 --- ./crates/ent_router/src/lib.rs ---
-use ent_core::{Entity, FieldUpdate, UpdateSource};
+// ./crates/ent_router/src/lib.rs
+use ent_types::SystemMessage;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
-use tokio::sync::oneshot;
-
-/// Единый тип сообщений для всей системы умного дома.
-/// Теперь ни один крейт не общается с другим напрямую — все создают эти сообщения 
-/// и отправляют их в центральный Роутер.
-#[derive(Debug)]
-pub enum SystemMessage {
-    // -----------------------------------------------------------------
-    // КОМАНДЫ ДЛЯ ЯДРА (EntityManager)
-    // -----------------------------------------------------------------
-    
-    /// Регистрирует новую сущность в базе данных ядра при старте модуля.
-    RegisterEntity(Entity),
-
-    /// Обновляет конкретное поле сущности (например, яркость или статус датчика).
-    UpdateEntityField {
-        entity_id: String,
-        field: FieldUpdate,
-        source: UpdateSource,
-    },
-
-    /// Этот вариант сообщения создается, когда кто-то (например, Lua) хочет узнать стейт сущности.
-    GetEntityState {
-        // Кого мы хотим прочитать (например, "light.living_room")
-        entity_id: String,
-        
-        // Передаем передатчик (Sender) ОДНОРАЗОВОГО канала прямо внутри сообщения!
-        // Тот, кто обработает этот запрос (Ядро), возьмет этот `reply`,
-        // положит туда результат (Option<Entity>) и сделает .send().
-        reply: oneshot::Sender<Option<Entity>>,
-    },
-
-    // -----------------------------------------------------------------
-    // СОБЫТИЯ ДЛЯ СКРИПТОВ (ScriptRunner / Lua)
-    // -----------------------------------------------------------------
-    
-    /// Сигнализирует движку скриптов, что состояние какой-то сущности изменилось,
-    /// и нужно запустить соответствующие Lua-автоматизации.
-    EntityChangedEvent {
-        entity_id: String,
-        // Мы передаем имя сущности, чтобы Lua понимала, на что именно реагировать
-    },
-
-    // -----------------------------------------------------------------
-    // СИСТЕМНЫЕ СИГНАЛЫ
-    // -----------------------------------------------------------------
-    
-    /// Команда на полную остановку всех фоновых потоков и тасок (плавное завершение).
-    Shutdown,
-}
-
 
 pub struct Router {
-    // Входной канал: сюда будут писать ВСЕ крейты
     rx_in: UnboundedReceiver<SystemMessage>,
-    // Этот передатчик мы будем клонировать и раздавать модулям
-    tx_in: UnboundedSender<SystemMessage>,
-
-    // Выходные каналы для обратной связи (наши «рельсы» к модулям)
+    _tx_in: UnboundedSender<SystemMessage>, // добавили _
     tx_to_core: UnboundedSender<SystemMessage>,
     tx_to_lua: UnboundedSender<SystemMessage>,
-    tx_to_mqtt: UnboundedSender<SystemMessage>,
+    _tx_to_mqtt: UnboundedSender<SystemMessage>, // добавили _
 }
 
 impl Router {
-    /// Создает роутер и инициализирует все каналы связи
     pub fn new(
         tx_to_core: UnboundedSender<SystemMessage>,
         tx_to_lua: UnboundedSender<SystemMessage>,
         tx_to_mqtt: UnboundedSender<SystemMessage>,
     ) -> (Self, UnboundedSender<SystemMessage>) {
-        // Создаем центральный входной канал (unbounded, чтобы не блокировать отправителей)
         let (tx_in, rx_in) = tokio::sync::mpsc::unbounded_channel();
 
         let router = Self {
             rx_in,
-            tx_in: tx_in.clone(),
+            _tx_in: tx_in.clone(),
             tx_to_core,
             tx_to_lua,
-            tx_to_mqtt,
+            _tx_to_mqtt: tx_to_mqtt,
         };
 
-        // Возвращаем сам роутер и его входной tx_in, который main.rs раздаст всем
         (router, tx_in)
     }
 
-    /// Главный асинхронный цикл распределения сообщений
     pub async fn run(mut self) {
         println!("[Роутер] Центральный маршрутизатор запущен.");
-        
+
         while let Some(msg) = self.rx_in.recv().await {
             match msg {
-                // Если это регистрация, обновление или ЗАПРОС состояния от Lua — 
-                // Роутер просто перекладывает это в канал Ядра
-                SystemMessage::RegisterEntity(_) 
-                | SystemMessage::UpdateEntityField { .. } 
-                | SystemMessage::GetEntityState { .. } => { // <-- Добавили наш новый запрос
+                SystemMessage::RegisterEntity(_)
+                | SystemMessage::UpdateEntityField { .. }
+                | SystemMessage::GetEntityState { .. } => {
                     let _ = self.tx_to_core.send(msg);
                 }
-                // Если это событие для скриптов — шлем строго в Lua
                 SystemMessage::EntityChangedEvent { .. } => {
                     let _ = self.tx_to_lua.send(msg);
                 }
-                // Если пришел сигнал остановки — рассылаем его всем и выходим из цикла
                 SystemMessage::Shutdown => {
                     println!("[Роутер] Получен сигнал Shutdown. Останавливаем модули...");
                     let _ = self.tx_to_core.send(SystemMessage::Shutdown);
                     let _ = self.tx_to_lua.send(SystemMessage::Shutdown);
-                    // Когда появится логика в MQTT, раскомментируем строчку ниже:
-                    // let _ = self.tx_to_mqtt.send(SystemMessage::Shutdown);
                     break;
                 }
             }
         }
         println!("[Роутер] Маршрутизатор успешно остановлен.");
     }
+}
+
+
+--- ./crates/ent_types/Cargo.toml ---
+[package]
+name = "ent_types"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# mlua нужна здесь, так как типы данных напрямую пробрасываются в Lua
+mlua = { version = "0.12", features = ["lua54", "vendored", "macros"] }
+# Для oneshot::Sender в SystemMessage
+tokio = { version = "1", features = ["sync"] } 
+
+--- ./crates/ent_types/src/lib.rs ---
+// ./crates/ent_types/src/lib.rs
+use mlua::UserData;
+use tokio::sync::oneshot;
+
+// =====================================================================
+// 1. ИСТОЧНИКИ ОБНОВЛЕНИЙ И СТРУКТУРЫ СОСТОЯНИЙ
+// =====================================================================
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UpdateSource {
+    Mqtt,
+    Script,
+    Timer,
+    Helper,
+    System,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum EntityState {
+    Light(LightState),
+    Sensor(SensorState),
+    BinarySensor(BinarySensorState),
+    Counter(CounterState),
+    InputBoolean(InputBooleanState),
+}
+
+#[derive(Debug, Clone, PartialEq, UserData)]
+pub struct LightState {
+    pub is_on: bool,
+    pub brightness: Option<u8>,
+    pub color_temp: Option<u16>,
+}
+
+#[derive(Debug, Clone, PartialEq, UserData)]
+pub struct SensorState {
+    pub value: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, UserData)]
+pub struct BinarySensorState {
+    pub is_on: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, UserData)]
+pub struct CounterState {
+    pub value: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, UserData)]
+pub struct InputBooleanState {
+    pub is_on: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum FieldUpdate {
+    IsOn(bool),
+    Brightness(Option<u8>),
+    ColorTemp(Option<u16>),
+    Value(f64),
+}
+
+// =====================================================================
+// 2. СУЩНОСТЬ (ENTITY)
+// =====================================================================
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Entity {
+    pub id: String,
+    pub friendly_name: String,
+    pub state: EntityState,
+}
+
+// =====================================================================
+// 3. ЦЕНТРАЛЬНЫЙ enum СООБЩЕНИЙ (SYSTEM MESSAGE)
+// =====================================================================
+
+#[derive(Debug)]
+pub enum SystemMessage {
+    /// Регистрирует новую сущность в базе данных ядра при старте модуля.
+    RegisterEntity(Entity),
+
+    /// Обновляет конкретное поле сущности.
+    UpdateEntityField {
+        entity_id: String,
+        field: FieldUpdate,
+        source: UpdateSource,
+    },
+
+    /// Запрос состояния сущности (например, из Lua) с одноразовым каналом ответа.
+    GetEntityState {
+        entity_id: String,
+        reply: oneshot::Sender<Option<Entity>>,
+    },
+
+    /// Сигнализирует движку скриптов, что состояние сущности изменилось.
+    EntityChangedEvent { entity_id: String },
+
+    /// Команда на плавную остановку всех фоновых потоков и тасок.
+    Shutdown,
 }
 
 

@@ -135,6 +135,12 @@ impl EntityManager {
                     let _ = reply.send(entity_clone);
                 }
 
+                 // 5. БАРЬЕР ГОТОВНОСТИ
+                SystemMessage::WaitReady { reply } => {
+                    // Отправляем сигнал готовности обратно в main
+                let _ = reply.send(());
+                }
+
                 // 4. ПЛАВНОЕ ЗАВЕРШЕНИЕ
                 SystemMessage::Shutdown => {
                     println!("[Ядро] Получен сигнал Shutdown. Остановка...");

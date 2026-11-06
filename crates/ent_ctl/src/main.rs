@@ -59,6 +59,18 @@ async fn main() {
             .expect("Не удалось отправить команду регистрации сущности");
     }
 
+
+    // БАРЬЕР ГОТОВНОСТИ ядра через WaitReady
+    println!("⏳ Синхронизация базы данных ядра...");
+    let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+    
+    tx_in.send(SystemMessage::WaitReady { reply: ready_tx })
+        .expect("Не удалось отправить пинг готовности ядра");
+    
+    // Асинхронно ждем, пока EntityManager разгребет очередь до этой точки
+    let _ = ready_rx.await; 
+    println!("✅ База данных ядра полностью готова.");
+
     // 7. Создаем EntityHandle для Lua, который смотрит на Роутер
     let lua_handle = EntityHandle::new(tx_in.clone());
 

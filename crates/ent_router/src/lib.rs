@@ -36,7 +36,8 @@ impl Router {
             match msg {
                 SystemMessage::RegisterEntity(_)
                 | SystemMessage::UpdateEntityField { .. }
-                | SystemMessage::GetEntityState { .. } => {
+                | SystemMessage::GetEntityState { .. }
+                | SystemMessage::WaitReady { .. } => {
                     let _ = self.tx_to_core.send(msg);
                 }
                 SystemMessage::EntityChangedEvent { .. } => {
